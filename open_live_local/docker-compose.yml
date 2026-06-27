@@ -17,8 +17,13 @@ services:
       retries: 10
 
   strom:
-    image: eyevinntechnology/strom-full:0.6.6
+    # Use STROM_IMAGE to switch to NDI-enabled image:
+    #   STROM_IMAGE=open-live-strom-ndi:0.6.6 docker compose up -d
+    # For NDI multicast to work, set network_mode to host:
+    #   STROM_NETWORK_MODE=host STROM_IMAGE=open-live-strom-ndi:0.6.6 docker compose up -d
+    image: ${STROM_IMAGE:-eyevinntechnology/strom-full:0.6.6}
     container_name: open-live-local-strom
+    network_mode: ${STROM_NETWORK_MODE:-}
     restart: unless-stopped
     environment:
       - TZ=${TZ:-Europe/Stockholm}
@@ -26,6 +31,7 @@ services:
       - STROM_SERVER_ICE_SERVERS=stun:stun.l.google.com:19302
     volumes:
       - strom-data:/data
+    # Ports only used in bridge mode; host mode exposes directly
     ports:
       - "0.0.0.0:8080:8080"
       - "0.0.0.0:5000:5000/udp"
@@ -47,12 +53,16 @@ services:
     working_dir: /app
     volumes:
       - ../backend:/app
+    # host-gateway lets bridge containers reach host-mode containers at host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - PORT=8000
       - COUCHDB_URL=http://${COUCHDB_USER:-admin}:${COUCHDB_PASSWORD:-password}@couchdb:5984
       - COUCHDB_NAME=open-live
       - CORS_ORIGIN=*
-      - STROM_URL=http://strom:8080
+      - STROM_URL=http://${STROM_HOST:-strom}:8080
+      - STROM_PUBLIC_URL=${STROM_PUBLIC_URL:-http://localhost:8080}
       - STROM_AUTH_MODE=direct
       - STROM_TOKEN=${STROM_API_KEY:-}
       - LOG_LEVEL=info
@@ -79,7 +89,7 @@ services:
       - ../frontend:/app
     environment:
       # Set IP=<your-lan-ip> to make Studio work from other machines on the network
-      - VITE_OPEN_LIVE_API_URL=http://${IP:-localhost}:8000/api/v1
+      - OPEN_LIVE_URL=http://${IP:-localhost}:8000
     command: >
       sh -c "corepack enable &&
       corepack prepare pnpm@latest --activate &&

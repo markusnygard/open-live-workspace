@@ -36,10 +36,12 @@ function sh(cmd, opts) {
 
 function dockerPs(name) {
   try {
-    const out = sh("docker inspect \"" + name + "\" --format '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.Config.Image}}'", { timeout: 5000 });
+    const out = sh("docker inspect \"" + name + "\" --format '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.Config.Image}}|{{.State.StartedAt}}'", { timeout: 5000 });
     if (!out) return null;
     const parts = out.split("|");
-    return { status: parts[0], health: parts[1] || "none", image: parts[2] || "" };
+    const startedAt = parts[3] || "";
+    const uptimeMs = startedAt ? Date.now() - new Date(startedAt).getTime() : 0;
+    return { status: parts[0], health: parts[1] || "none", image: parts[2] || "", uptimeMs: uptimeMs > 0 ? uptimeMs : 0 };
   } catch {
     return null;
   }
@@ -280,6 +282,7 @@ const PAGE = [
 "var API='/api';var pc=0;",
 "function cls(s){if(!s)return'unknown';if(s==='running'||s==='healthy'||s==='starting')return'running';return'stopped'}",
 "function dot(s){return'<span class=\"dot '+cls(s)+'\"></span>'}",
+"function fmtUptime(ms){if(ms<=0)return'';var s=Math.floor(ms/1000);var m=Math.floor(s/60);s%=60;var h=Math.floor(m/60);m%=60;if(h>0)return h+'h '+m+'m';if(m>0)return m+'m';return s+'s'}",
 "function render(d){",
 " var h='';",
 " for(var mode in d){",
@@ -297,8 +300,9 @@ const PAGE = [
 "   var hl=c?c.health:'N/A';",
 "   var img=c?c.image:'-';",
 "   var ver=c&&c.version?c.version:'-';",
+"   var up=c&&c.uptimeMs?fmtUptime(c.uptimeMs):'';",
 "   h+='<div class=\"card\"><div class=\"name\">'+name+'</div>';",
-"   h+='<div class=\"info\"><span>ver: '+ver+'</span><span>img: '+img+'</span><span>health: '+hl+'</span></div>';",
+"   h+='<div class=\"info\"><span>ver: '+ver+'</span><span>img: '+img+'</span><span>health: '+hl+'</span>'+(up?'<span>up: '+up+'</span>':'')+'</div>';",
 "   h+='<div class=\"row\">';",
 "   h+='<span class=\"status '+cls(st)+'\">'+dot(st)+' '+st.toUpperCase()+'</span>';",
 "   if(st==='running')h+='<button class=\"btn restart\" onclick=\"event.stopPropagation();restartOne(\\''+mode+'\\',\\''+name+'\\')\">restart</button>';",

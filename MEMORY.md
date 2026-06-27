@@ -220,3 +220,13 @@ The platform can be fully deployed on OSC at osaas.io:
 | 2026-06-27 | Dashboard: Made cross-platform (Linux/macOS/Windows). Replaced curl with Node.js HTTP, removed all POSIX shell deps. Added start.bat. |
 | 2026-06-27 | Dashboard: Added "Open Studio" button (only when studio is running), uses `window.location.hostname` for LAN access. |
 | 2026-06-27 | Docker-compose fixes: healthcheck (curl→python3), volume paths (../../→../), STROM_AUTH_MODE=direct, image tag delimiter (':'→'|'). |
+| 2026-06-27 | Dashboard: Added container uptime display (e.g., "up: 6h 10m"). |
+| 2026-06-27 | **NDI integration**: Built custom `open-live-strom-ndi:0.6.6` Docker image with NDI SDK + GStreamer NDI plugin. NDI blocks verified working. |
+| 2026-06-27 | Added NDI (`ndi`) and SDI (`sdi`) output types to Open Live backend + frontend. Flow-generator injects `builtin.ndi_output` and `builtin.decklink_output`. |
+| 2026-06-27 | Added NDI (`ndi`) source type to Open Live. Backend: `/api/v1/ndi/sources` proxy endpoint, `builtin.ndi_input` in flow-generator (uses `url_address` for direct TCP, `ndi_name` for mDNS fallback). Frontend: NDI discovery dropdown in SourcesPanel auto-fills IP:port. |
+| 2026-06-27 | Created `/api/v1/capabilities` endpoint — checks Strom's device discovery to dynamically show/hide NDI/SDI options in UI. SourcesPanel and OutputsPanel adapt. |
+| 2026-06-27 | **WHEP fix**: Split STROM_URL (backend API) from STROM_PUBLIC_URL (browser WHEP). Frontend skips WHEP proxy for localhost URLs. Enables WHEP + NDI simultaneously in host networking mode. |
+| 2026-06-27 | Docker networking: `network_mode` defaults to compose network (bridge → `strom` DNS); host mode for NDI requires `STROM_NETWORK_MODE=host` + `STROM_HOST=host.docker.internal`. Persistent `.env` file created. |
+| 2026-06-27 | Fixed Studio API base URL doubling (`/api/v1/api/v1/...`) — `OPEN_LIVE_URL` no longer includes `/api/v1`. Vite proxy targets `http://open-live:8000`. |
+| 2026-06-27 | NDI discovery: 5 vMix sources on LAN confirmed working in host mode. NDI inputs use direct IP:port for bridge-mode compatibility. |
+| 2026-06-27 | **End of session**: All containers stopped (`docker compose down`). Persistent `.env` preserves all settings. Tomorrow: `docker compose up -d` restores full stack. |
