@@ -1,6 +1,6 @@
 services:
   couchdb:
-    image: couchdb:3.3
+    image: couchdb:3.5.2
     container_name: open-live-hybrid-db
     restart: unless-stopped
     environment:
@@ -17,7 +17,7 @@ services:
       retries: 10
 
   strom:
-    image: eyevinntechnology/strom-full:latest
+    image: eyevinntechnology/strom-full:0.6.6
     container_name: open-live-hybrid-strom
     restart: unless-stopped
     environment:
@@ -32,10 +32,10 @@ services:
       - "0.0.0.0:8080:8080"
       - "0.0.0.0:5000:5000/udp"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 20
     logging:
       driver: json-file
       options:

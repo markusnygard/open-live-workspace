@@ -1,6 +1,6 @@
 services:
   couchdb:
-    image: couchdb:3.3
+    image: couchdb:3.5.2
     container_name: open-live-local-db
     restart: unless-stopped
     environment:
@@ -17,7 +17,7 @@ services:
       retries: 10
 
   strom:
-    image: eyevinntechnology/strom-full:latest
+    image: eyevinntechnology/strom-full:0.6.6
     container_name: open-live-local-strom
     restart: unless-stopped
     environment:
@@ -30,10 +30,10 @@ services:
       - "0.0.0.0:8080:8080"
       - "0.0.0.0:5000:5000/udp"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 20
     logging:
       driver: json-file
       options:
@@ -46,15 +46,15 @@ services:
     restart: unless-stopped
     working_dir: /app
     volumes:
-      - ../../backend:/app
+      - ../backend:/app
     environment:
       - PORT=8000
       - COUCHDB_URL=http://${COUCHDB_USER:-admin}:${COUCHDB_PASSWORD:-password}@couchdb:5984
       - COUCHDB_NAME=open-live
       - CORS_ORIGIN=*
       - STROM_URL=http://strom:8080
-      - STROM_AUTH_MODE=${STROM_API_KEY:+"direct"}
-      - STROM_TOKEN=${STROM_API_KEY}
+      - STROM_AUTH_MODE=direct
+      - STROM_TOKEN=${STROM_API_KEY:-}
       - LOG_LEVEL=info
     command: >
       sh -c "corepack enable &&
@@ -76,8 +76,9 @@ services:
     restart: unless-stopped
     working_dir: /app
     volumes:
-      - ../../frontend:/app
+      - ../frontend:/app
     environment:
+      # Set IP=<your-lan-ip> to make Studio work from other machines on the network
       - VITE_OPEN_LIVE_API_URL=http://${IP:-localhost}:8000/api/v1
     command: >
       sh -c "corepack enable &&

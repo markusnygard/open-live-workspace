@@ -2,14 +2,20 @@
 DIR="$(cd "$(dirname "$0")" && pwd)"
 PORT="${PORT:-3100}"
 
-fuser -k "${PORT}/tcp" 2>/dev/null
+# Kill existing instance on the port (Linux/macOS)
+command -v fuser >/dev/null 2>&1 && fuser -k "${PORT}/tcp" 2>/dev/null
+command -v lsof  >/dev/null 2>&1 && lsof -ti "tcp:${PORT}" | xargs kill 2>/dev/null
 sleep 0.5
 
-nohup node "${DIR}/server.mjs" > /dev/null 2>&1 &
+"${DIR}/node_modules/.bin/node" 2>/dev/null || true
+node "${DIR}/server.mjs" &
 sleep 1
 
-if command -v xdg-open &>/dev/null; then
+# Open browser
+if command -v xdg-open >/dev/null 2>&1; then
   xdg-open "http://localhost:${PORT}" 2>/dev/null &
-elif command -v open &>/dev/null; then
+elif command -v open >/dev/null 2>&1; then
   open "http://localhost:${PORT}" 2>/dev/null &
+elif command -v start >/dev/null 2>&1; then
+  start "http://localhost:${PORT}" 2>/dev/null &
 fi

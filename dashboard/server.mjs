@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, get as httpGet } from "node:http";
 import { execSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,23 +20,88 @@ const CONTAINERS = {
   },
 };
 
+const VERSION_PROBES = {
+  strom:     { port: 8080, path: "/api/version", field: "version" },
+  couchdb:   { port: 5984, path: "/", field: "version" },
+};
+
+const GIT_REPOS = {
+  "open-live": "backend",
+  studio:       "frontend",
+};
+
+function sh(cmd, opts) {
+  return execSync(cmd, { timeout: opts?.timeout || 5000, encoding: "utf8", stdio: ["pipe","pipe","ignore"], ...opts }).trim();
+}
+
 function dockerPs(name) {
   try {
-    const out = execSync("docker inspect \"" + name + "\" --format '{{.State.Status}}:{{.State.Health.Status}}:{{.Config.Image}}' 2>/dev/null", { timeout: 5000, encoding: "utf8" }).trim();
+    const out = sh("docker inspect \"" + name + "\" --format '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.Config.Image}}'", { timeout: 5000 });
     if (!out) return null;
-    const parts = out.split(":");
-    return { status: parts[0], health: parts[1] || "N/A", image: parts[2] || "" };
+    const parts = out.split("|");
+    return { status: parts[0], health: parts[1] || "none", image: parts[2] || "" };
   } catch {
     return null;
   }
 }
 
-function allStatus() {
+function gitVersion(relPath) {
+  try {
+    const out = sh("git tag --sort=-v:refname", { cwd: join(ROOT, relPath), timeout: 3000 });
+    if (!out) return null;
+    return out.split("\n")[0];
+  } catch {
+    return null;
+  }
+}
+
+function imageVersion(info) {
+  if (!info || !info.image) return null;
+  const m = info.image.match(/:(\d[\d.]*)/);
+  return m ? m[1] : null;
+}
+
+function httpGetJson(port, path) {
+  return new Promise((resolve) => {
+    const req = httpGet("http://localhost:" + port + path, { timeout: 2000 }, (res) => {
+      let data = "";
+      res.on("data", (chunk) => data += chunk);
+      res.on("end", () => resolve(data.trim()));
+    });
+    req.on("error", () => resolve(""));
+    req.on("timeout", () => { req.destroy(); resolve(""); });
+  });
+}
+
+async function probeVersion(svc, ctr) {
+  if (!ctr || ctr.status !== "running") return ctr;
+  const probe = VERSION_PROBES[svc];
+  const repo = GIT_REPOS[svc];
+  if (probe) {
+    try {
+      const out = await httpGetJson(probe.port, probe.path);
+      if (out && probe.field) {
+        try { const json = JSON.parse(out); const ver = json[probe.field]; if (ver) return { ...ctr, version: ver }; } catch {}
+      }
+      return { ...ctr, version: (out && !probe.field ? out.slice(0, 80) : null) || imageVersion(ctr) };
+    } catch {
+      return { ...ctr, version: imageVersion(ctr) };
+    }
+  }
+  if (repo) {
+    const gv = gitVersion(repo);
+    if (gv) return { ...ctr, version: gv };
+  }
+  return { ...ctr, version: imageVersion(ctr) };
+}
+
+async function allStatus() {
   const result = {};
   for (const [mode, containers] of Object.entries(CONTAINERS)) {
     result[mode] = {};
     for (const [name, cid] of Object.entries(containers)) {
-      result[mode][name] = dockerPs(cid);
+      const info = dockerPs(cid);
+      result[mode][name] = await probeVersion(name, info);
     }
   }
   return result;
@@ -51,7 +116,7 @@ function runCompose(mode, action) {
   else args = action + " -d";
   const cmd = "docker compose -f \"" + file + "\" " + args;
   try {
-    const out = execSync(cmd, { timeout: 60000, encoding: "utf8", cwd: dir }).trim();
+    const out = sh(cmd, { timeout: 60000, cwd: dir });
     return { ok: true, command: action, output: out, mode };
   } catch (e) {
     return { ok: false, command: action, error: e.stderr || e.message, mode };
@@ -63,7 +128,7 @@ function sendJson(res, code, data) {
   res.end(JSON.stringify(data));
 }
 
-const server = createServer((req, res) => {
+const server = createServer(async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -74,7 +139,7 @@ const server = createServer((req, res) => {
   const path = url.pathname;
 
   if (path === "/api/status" && req.method === "GET") {
-    sendJson(res, 200, allStatus());
+    sendJson(res, 200, await allStatus());
     return;
   }
 
@@ -130,7 +195,7 @@ const server = createServer((req, res) => {
       return;
     }
     try {
-      execSync("docker restart \"" + cid + "\"", { timeout: 30000, encoding: "utf8" });
+      sh("docker restart \"" + cid + "\"", { timeout: 30000 });
       sendJson(res, 200, { ok: true, container: name });
     } catch (e) {
       sendJson(res, 500, { ok: false, error: e.stderr || e.message });
@@ -183,6 +248,7 @@ const PAGE = [
 ".btn.show{border-color:var(--accent);color:var(--accent)}.btn.show:hover{background:#0d1a2a}",
 ".btn.stop{border-color:var(--red);color:var(--red)}.btn.stop:hover{background:#2a1515}",
 ".btn.start{border-color:var(--green);color:var(--green)}.btn.start:hover{background:#152a1a}",
+".btn.studio-btn{border-color:var(--accent);color:var(--accent)}.btn.studio-btn:hover{background:#0d1a2a}",
 ".card .row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px}",
 ".card .row .status{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600}",
 ".card .row .status.running{color:var(--green)}.card .row .status.stopped{color:var(--red)}.card .row .status.unknown{color:var(--muted)}",
@@ -230,8 +296,9 @@ const PAGE = [
 "   var st=c?c.status:'not created';",
 "   var hl=c?c.health:'N/A';",
 "   var img=c?c.image:'-';",
+"   var ver=c&&c.version?c.version:'-';",
 "   h+='<div class=\"card\"><div class=\"name\">'+name+'</div>';",
-"   h+='<div class=\"info\"><span>img: '+img+'</span><span>health: '+hl+'</span></div>';",
+"   h+='<div class=\"info\"><span>ver: '+ver+'</span><span>img: '+img+'</span><span>health: '+hl+'</span></div>';",
 "   h+='<div class=\"row\">';",
 "   h+='<span class=\"status '+cls(st)+'\">'+dot(st)+' '+st.toUpperCase()+'</span>';",
 "   if(st==='running')h+='<button class=\"btn restart\" onclick=\"event.stopPropagation();restartOne(\\''+mode+'\\',\\''+name+'\\')\">restart</button>';",
@@ -242,6 +309,7 @@ const PAGE = [
 "  h+='<button class=\"btn start\" onclick=\"startMode(\\''+mode+'\\')\">Start</button>';",
 "  h+='<button class=\"btn show\" onclick=\"showContainers(\\''+mode+'\\')\">Show Containers</button>';",
 "  h+='<button class=\"btn stop\" onclick=\"stopMode(\\''+mode+'\\')\">Stop All</button>';",
+"  if(mode==='local'&&ctr.studio&&ctr.studio.status==='running')h+='<button class=\"btn studio-btn\" onclick=\"window.open(\\'http://'+window.location.hostname+':3000\\',\\'_blank\\')\">Open Studio</button>';",
 "  h+='</div></div>'",
 " }",
 " document.getElementById('app').innerHTML=h;",
