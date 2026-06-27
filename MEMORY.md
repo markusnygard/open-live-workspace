@@ -214,3 +214,9 @@ The platform can be fully deployed on OSC at osaas.io:
 | 2026-06-27 | Dashboard: Created desktop shortcut (~/Desktop/open-live-dashboard.desktop) with hidden terminal, one-click launch. |
 | 2026-06-27 | Dashboard: Added per-container restart buttons, "Start" and "Stop All" mode buttons, `/api/start/:mode` and `/api/restart/:mode/:name` endpoints. |
 | 2026-06-27 | Created `markusnygard/open-live-workspace` repo. Pushed dashboard, MEMORY.md, deployment configs. |
+| 2026-06-27 | Pinned versions: Strom `0.6.6`, CouchDB `3.5.2`. All 3 repos use single `main` branch. |
+| 2026-06-27 | Started local stack: Strom :8080, Backend :8000, Studio :3000, CouchDB :5984. |
+| 2026-06-27 | Dashboard: Real version display via HTTP probes (Strom, CouchDB) + git tags (Open-Live v0.4.0, Studio v0.4.0). |
+| 2026-06-27 | Dashboard: Made cross-platform (Linux/macOS/Windows). Replaced curl with Node.js HTTP, removed all POSIX shell deps. Added start.bat. |
+| 2026-06-27 | Dashboard: Added "Open Studio" button (only when studio is running), uses `window.location.hostname` for LAN access. |
+| 2026-06-27 | Docker-compose fixes: healthcheck (curl→python3), volume paths (../../→../), STROM_AUTH_MODE=direct, image tag delimiter (':'→'|'). |
