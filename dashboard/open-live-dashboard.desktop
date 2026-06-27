@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Open Live Dashboard
+Comment=Monitor and control Open Live Docker containers
+Exec=/home/nygard/open-live/dashboard/start.sh
+Icon=/home/nygard/open-live/dashboard/icon.svg
+Terminal=false
+Categories=Development;
+StartupNotify=false

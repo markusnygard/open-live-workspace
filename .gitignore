@@ -1,0 +1,11 @@
+node_modules/
+.env
+db-data/
+.pnpm-store/
+
+# Sub-repos (managed separately)
+backend/
+frontend/
+strom/
+open-live-studio/
+studio/

@@ -1,0 +1,47 @@
+services:
+  couchdb:
+    image: couchdb:3.3
+    container_name: open-live-hybrid-db
+    restart: unless-stopped
+    environment:
+      - COUCHDB_USER=${COUCHDB_USER:-admin}
+      - COUCHDB_PASSWORD=${COUCHDB_PASSWORD:-password}
+    volumes:
+      - couchdb-data:/opt/couchdb/data
+    ports:
+      - "0.0.0.0:5984:5984"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://${COUCHDB_USER:-admin}:${COUCHDB_PASSWORD:-password}@localhost:5984/_up"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  strom:
+    image: eyevinntechnology/strom-full:latest
+    container_name: open-live-hybrid-strom
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-Europe/Stockholm}
+      - STROM_API_KEY=${STROM_API_KEY:?STROM_API_KEY is required for hybrid mode}
+      - STROM_ADMIN_USER=${STROM_ADMIN_USER:-admin}
+      - STROM_ADMIN_PASSWORD_HASH=${STROM_ADMIN_PASSWORD_HASH}
+      - STROM_SERVER_ICE_SERVERS=${STROM_ICE_SERVERS:-stun:stun.l.google.com:19302}
+    volumes:
+      - strom-data:/data
+    ports:
+      - "0.0.0.0:8080:8080"
+      - "0.0.0.0:5000:5000/udp"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+volumes:
+  couchdb-data:
+  strom-data:

@@ -1,0 +1,61 @@
+services:
+  couchdb:
+    image: couchdb:3.3
+    container_name: open-live-db
+    environment:
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=password
+    volumes:
+      - ./db-data:/opt/couchdb/data
+    ports:
+      - "0.0.0.0:5984:5984"
+
+  strom:
+    image: eyevinntechnology/strom-full:latest
+    container_name: strom-service
+    ports:
+      - "0.0.0.0:8080:8080"
+      - "0.0.0.0:5000:5000/udp"
+
+  open-live:
+    image: node:23-slim
+    container_name: open-live-backend
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    environment:
+      # These must match the OSC Guide exactly
+      - PORT=8000
+      - COUCHDB_URL=http://admin:password@couchdb:5984
+      - COUCHDB_NAME=open-live
+      - STROM_URL=http://strom:8080
+      - STROM_AUTH_MODE=direct
+      - CORS_ORIGIN=http://192.168.1.11:3000
+      - LOG_LEVEL=info
+    command: >
+      sh -c "corepack enable && 
+      corepack prepare pnpm@latest --activate && 
+      pnpm install && 
+      sleep 5 &&
+      pnpm exec tsx src/main.ts --host"
+    ports:
+      - "0.0.0.0:8000:8000"
+    depends_on:
+      - couchdb
+      - strom
+
+  open-live-studio-ui:
+    image: node:23-slim
+    container_name: open-live-studio-ui
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    environment:
+      - VITE_OPEN_LIVE_API_URL=http://192.168.1.11:8000/api/v1
+    command: >
+      sh -c "corepack enable && 
+      corepack prepare pnpm@latest --activate && 
+      pnpm install && 
+      pnpm exec vite --host 0.0.0.0 --port 5173 --strictPort"
+    ports:
+      - "0.0.0.0:3000:5173"
