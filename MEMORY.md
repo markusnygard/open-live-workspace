@@ -229,4 +229,11 @@ The platform can be fully deployed on OSC at osaas.io:
 | 2026-06-27 | Docker networking: `network_mode` defaults to compose network (bridge → `strom` DNS); host mode for NDI requires `STROM_NETWORK_MODE=host` + `STROM_HOST=host.docker.internal`. Persistent `.env` file created. |
 | 2026-06-27 | Fixed Studio API base URL doubling (`/api/v1/api/v1/...`) — `OPEN_LIVE_URL` no longer includes `/api/v1`. Vite proxy targets `http://open-live:8000`. |
 | 2026-06-27 | NDI discovery: 5 vMix sources on LAN confirmed working in host mode. NDI inputs use direct IP:port for bridge-mode compatibility. |
-| 2026-06-27 | **End of session**: All containers stopped (`docker compose down`). Persistent `.env` preserves all settings. Tomorrow: `docker compose up -d` restores full stack. |
+| 2026-06-28 | **End of session**: All containers stopped. Persistent `.env` preserves all settings. Tomorrow: `docker compose up -d` restores full stack. |
+| 2026-06-28 | **Session 2**: Dashboard started, all 4 containers verified running with host mode + NDI discovery (4 sources). |
+| 2026-06-28 | **SDI source type** added: `'sdi'` in StreamType, `builtin.decklink_input` in flow-generator. Device number dropdown in SourcesPanel (0-N). |
+| 2026-06-28 | **SDI output device selection**: OutputsPanel now shows Device Number dropdown instead of fixed '0'. Flow-generator reads from `outputDoc.url`. |
+| 2026-06-28 | **Dynamic DeckLink count**: `/api/v1/capabilities` now returns `sdiDevices` from Strom's device discovery (counts `decklinkdeviceprovider` entries). UI adapts dynamically. |
+| 2026-06-28 | **No-hardware message**: When `sdiDevices=0`, SourcesPanel and OutputsPanel show "No DeckLink hardware detected" instead of device dropdowns. |
+| 2026-06-28 | **DeckLink status**: No DeckLink hardware found on this machine (`/dev/blackmagic/` absent, `decklinkvideosrc` not in GStreamer). Driver installation + reboots likely needed. |
+| 2026-06-28 | Stopped containers. All changes committed + pushed to 3 forks. |
