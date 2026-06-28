@@ -153,7 +153,9 @@ const server = createServer(async (req, res) => {
     }
     const result = runCompose(mode, "ps-json");
     try {
-      const containers = JSON.parse(result.output || "[]");
+      const containers = (result.output || "").split("\n").filter(Boolean).map(function(line) {
+        try { return JSON.parse(line); } catch { return null; }
+      }).filter(Boolean);
       sendJson(res, 200, { ok: true, mode, containers });
     } catch {
       sendJson(res, 200, { ok: false, mode, error: result.error || "Failed to parse container list", raw: result.output });

@@ -24,14 +24,31 @@ services:
     image: ${STROM_IMAGE:-eyevinntechnology/strom-full:0.6.6}
     container_name: open-live-local-strom
     network_mode: ${STROM_NETWORK_MODE:-}
+    privileged: true
     restart: unless-stopped
     environment:
       - TZ=${TZ:-Europe/Stockholm}
       - STROM_API_KEY=${STROM_API_KEY}
       - STROM_SERVER_ICE_SERVERS=stun:stun.l.google.com:19302
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    # GPU acceleration (requires nvidia-container-toolkit)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    cap_add:
+      - SYS_NICE
     volumes:
       - strom-data:/data
-    # Ports only used in bridge mode; host mode exposes directly
+      - /dev/blackmagic:/dev/blackmagic
+      - /usr/lib/libDeckLinkAPI.so:/usr/lib/x86_64-linux-gnu/libDeckLinkAPI.so:ro
+      - /usr/lib/libDeckLinkPreviewAPI.so:/usr/lib/x86_64-linux-gnu/libDeckLinkPreviewAPI.so:ro
+      - /usr/lib/blackmagic:/usr/lib/blackmagic:ro
+    devices:
+      - /dev/blackmagic:/dev/blackmagic
     ports:
       - "0.0.0.0:8080:8080"
       - "0.0.0.0:5000:5000/udp"
@@ -65,6 +82,7 @@ services:
       - STROM_PUBLIC_URL=${STROM_PUBLIC_URL:-http://localhost:8080}
       - STROM_AUTH_MODE=direct
       - STROM_TOKEN=${STROM_API_KEY:-}
+      - SDI_DEVICE_COUNT=${SDI_DEVICE_COUNT:-0}
       - LOG_LEVEL=info
     command: >
       sh -c "corepack enable &&

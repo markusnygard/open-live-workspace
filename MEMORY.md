@@ -237,3 +237,15 @@ The platform can be fully deployed on OSC at osaas.io:
 | 2026-06-28 | **No-hardware message**: When `sdiDevices=0`, SourcesPanel and OutputsPanel show "No DeckLink hardware detected" instead of device dropdowns. |
 | 2026-06-28 | **DeckLink status**: No DeckLink hardware found on this machine (`/dev/blackmagic/` absent, `decklinkvideosrc` not in GStreamer). Driver installation + reboots likely needed. |
 | 2026-06-28 | Stopped containers. All changes committed + pushed to 3 forks. |
+| 2026-06-28 | **Session 3**: Dashboard started, containers verified. GPU (Quadro P6000) detected and enabled via nvidia-container-toolkit. |
+| 2026-06-28 | **SDI debugging**: DeckLink driver reinstalled, desktopvideo 15.3.1a4. `/dev/blackmagic/io0-4` mounted. GPU-accelerated encoding working (NVENC). |
+| 2026-06-28 | DeckLink block fails: `decklinkvideosrc ! videoconvert` succeeds raw but fails through Strom's block (GStreamer 1.22.12 plugin incompatible with Desktop Video 15.3). SDI deferred. |
+| 2026-06-28 | **NDI working**: 5 vMix sources + NDI Tools Test Pattern. Flow plays at 1920x1080 with GPU. WHEP working (multiview + PGM). |
+| 2026-06-28 | **Vision mixer control fixed**: `selectPreview` API changed to `PUT {source: {input: N}}` (was `POST {input: N}`). Transition `POST` with `from_input`/`to_input` works. CUT/TAKE functional. |
+| 2026-06-28 | **Frontend updated from upstream**: Pulled latest Eyevinn/open-live-studio (PiP, data:text/html sources, etc). Resolved merge conflicts. Backend kept at our fork version (too many upstream conflicts). |
+| 2026-06-28 | **PGM WHEP fix**: PGM preview had hardcoded `proxyUrl` — added conditional bypass for localhost URLs, matching multiview behavior. |
+| 2026-06-28 | **LAN WHEP rewrite**: WHEP URLs rewrite `localhost` → `window.location.hostname` for remote LAN access. |
+| 2026-06-28 | **Dashboard fixes**: "Show Containers" now parses newline-delimited JSON from `docker compose ps`. LAN Studio access via `IP=192.168.1.11` in `.env`. |
+| 2026-06-28 | **Strom networking**: Host mode for WHEP + NDI. Bridge mode WHEP broken (ICE/UDP ports not exposed). Compose: `network_mode: host`, `privileged: true`, NVIDIA GPU deploy config, DeckLink mounts. |
+| 2026-06-28 | **NIDI Test Pattern**: Vizrt NDI Tools produces audio-only stream initially; video (still image, 1920x1080@25, UYVY, BT.709) appears after ~20s. vMix NDI works immediately. |
+| 2026-06-28 | **End of session**: Containers stopped. All changes committed. `.env` preserves IP=192.168.1.11, GPU, host networking. |
