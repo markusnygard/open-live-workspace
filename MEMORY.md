@@ -249,3 +249,5 @@ The platform can be fully deployed on OSC at osaas.io:
 | 2026-06-28 | **Strom networking**: Host mode for WHEP + NDI. Bridge mode WHEP broken (ICE/UDP ports not exposed). Compose: `network_mode: host`, `privileged: true`, NVIDIA GPU deploy config, DeckLink mounts. |
 | 2026-06-28 | **NIDI Test Pattern**: Vizrt NDI Tools produces audio-only stream initially; video (still image, 1920x1080@25, UYVY, BT.709) appears after ~20s. vMix NDI works immediately. |
 | 2026-06-28 | **End of session**: Containers stopped. All changes committed. `.env` preserves IP=192.168.1.11, GPU, host networking. |
+| 2026-06-29 | **DeckLink plugin fix found**: Root cause is GStreamer decklink plugin version mismatch. Working image `dev-70d0ad4` has plugin 1.26.5 (built from gst-plugins-bad 1.26.5, Aug 2025). Current `strom-full:0.6.6` bundles old plugin 1.22.12 (Apr 2024) incompatible with Desktop Video 15.3.1a4. |
+| 2026-06-29 | Rebuilt `open-live-strom-ndi:0.6.6` with working decklink .so from `dev-70d0ad4`. Raw GStreamer tests all pass: `decklinkvideosrc ! videoconvert ! x264enc/nvh264enc → PAUSED`. Strom block still fails (separate audio/video mode issue). |
