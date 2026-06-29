@@ -39,4 +39,5 @@ COPY --from=decklink /usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstdecklink.so /
 
 RUN apt-get update && apt-get install -y \
     libavahi-common3 libavahi-client3 \
+    && apt-get install -y --reinstall gstreamer1.0-plugins-bad \
     && rm -rf /var/lib/apt/lists/*
