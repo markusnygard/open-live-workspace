@@ -315,6 +315,7 @@ The platform can be fully deployed on OSC at osaas.io:
 | S3 | MP4/H.264 "fast-start" ≤50 Mbps, MP3, WAV (small) | Large WAV | MXF (index at end), >100 Mbps, files >2 GB |
 
 - **Video default:** MP4/H.264 (High@L4.1, 25-50 Mbps) + AAC audio — universal, GPU-decodable via NVENC
+- **Still images:** PNG and JPEG supported via GStreamer pngdec/jpegdec. Single frame decoded, loop mode holds as static. Use for logos, lower-thirds, slates.
 - **Audio default:** WAV 48kHz/16-bit for quality; MP3 320kbps for small footprint (ideal for S3)
 - **Lossless recorders:** WAV 48kHz/24-bit PCM (see Recorder feature)
 - UI shows soft warnings for formats tagged "caution" based on selected storage type — never hard blocks
@@ -667,7 +668,10 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 
 ## Documentation To-Do
 
-> Installation guides to write when ready.
+> Installation guides and small feature enhancements to write when ready.
+
+### Quick Implementation
+- **AES67 capability detection** — add `aes67: boolean` to capabilities endpoint (check Strom `/api/blocks` for `builtin.aes67_input`). Add `aes67` to `StreamType` union, frontend `Capabilities` interface, and SourcesPanel useEffect (hide AES67 button when no AES67 blocks). ~15 lines across 3 files.
 
 ### Local Setup Guide
 - Hardware requirements (GPU, DeckLink cards, audio interface)
