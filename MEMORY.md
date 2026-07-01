@@ -260,6 +260,10 @@ The platform can be fully deployed on OSC at osaas.io:
 | 2026-06-30 | Companion module rebuilt: page navigation via `set_page` action + `navigate_page` variable, all productions shown (active=green idle, inactive=grey), `production_slot_active` feedback. |
 | 2026-06-30 | Backend fixes: production creation now accepts `sources` array in initial POST, `ProductionPatch` schema accepts booleans, SDI device count via `SDI_DEVICE_COUNT` env var fallback (set to 12), SDI audio routing uses `audio_out` pad (not `audio_out_0`). |
 | 2026-06-30 | **SDI+NDI hybrid production**: Tested successfully — 1× DeckLink SDI input + 2× NDI sources running simultaneously with video + audio. |
+| 2026-07-01 | **Hybrid rig networking**: Headscale/WireGuard VPS gateway setup — Strom+CouchDB on-prem behind NAT → VPS iptables port forwarding → OSC cloud Open Live + Studio. `setup-vps.sh` script written. Tailscale client installed on VPS to join mesh. |
+| 2026-07-01 | **OSC hybrid deployment**: Created `openlivehybrid` (Open Live) and `hybridstudioz8` (Studio) instances on OSC at osaas.io. Backend connects to on-prem CouchDB+Strom through VPS tunnel. |
+| 2026-07-01 | **CORS fix**: OSC backend must have `CORS_ORIGIN` set to the Studio's full URL (`https://<studio-name>.eyevinn-open-live-studio.auto.prod-se.osaas.io`), not `*` and not its own URL. |
+| 2026-07-01 | Dashboard simplified: single MODE section with dynamic title (LOCAL/HYBRID/MODE STOPPED), "Start Local" (all 4) and "Start Hybrid" (CouchDB+Strom only) buttons. UI scaled up ~10%. |
 
 ---
 
@@ -658,6 +662,28 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 - **Fader bridge is a separate tool** — not part of Open Live backend or frontend. Reuses existing WS `AUDIO_SET`/`AUDIO_STATE` protocol. No new backend endpoints needed.
 - **MIDI is the universal protocol** — 95% of controllers speak MIDI CC/Note/PitchBend. Additional protocol handlers (OSC, TCP RAW) added as needed.
 - **Per-production fader config survives room changes** — same production, different room, same fader model: plug in, start bridge, works. Channel mapping stored in production document.
+
+---
+
+## Documentation To-Do
+
+> Installation guides to write when ready.
+
+### Local Setup Guide
+- Hardware requirements (GPU, DeckLink cards, audio interface)
+- Desktop Video driver installation
+- docker compose up — first run
+- Dashboard usage
+- Creating first production with SDI/NDI sources
+- Companion module setup
+
+### Hybrid Setup Guide
+- Prerequisites: Headscale VPS, OSC account with PAT
+- VPS setup — `setup-vps.sh` walkthrough
+- Tailscale client on Strom machine
+- OSC instance creation (CouchDB, Open Live, Studio)
+- CORS_ORIGIN configuration
+- Testing the end-to-end flow: source creation → production activation → WHEP monitoring
 
 ---
 
