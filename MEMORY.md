@@ -405,6 +405,157 @@ The platform can be fully deployed on OSC at osaas.io:
 
 ---
 
+### Feature: Per-Channel Audio Dynamics (Gain, HPF, Gate, Compressor, EQ)
+
+**Goal:** Expose the Strom mixer block's per-channel dynamics controls in the Studio mixer panel. Each channel strip gets a "Processing" button that opens a popup with gain, high-pass filter, gate, compressor, and 4-band parametric EQ.
+
+**Why:** The Strom `builtin.mixer` block already has all these as live properties — values change instantly with no flow restart. The Stream Deck companion module already shows H/G/C/E buttons that open processing windows in Strom's own UI. Studio needs its own version.
+
+**Already available in Strom (block-level properties):**
+| Property | Range | Type |
+|----------|-------|------|
+| `chN_gain` | -20 to +20 dB | Float |
+| `chN_hpf_enabled` | true/false | Bool |
+| `chN_hpf_freq` | Hz | Float |
+| `chN_gate_enabled` | true/false | Bool |
+| `chN_gate_threshold` | dB | Float |
+| `chN_gate_attack` | ms | Float |
+| `chN_gate_release` | ms | Float |
+| `chN_comp_enabled` | true/false | Bool |
+| `chN_comp_threshold` | dB | Float |
+| `chN_comp_ratio` | 1:1 to 20:1 | Float |
+| `chN_comp_attack` | ms (0-200) | Float |
+| `chN_comp_release` | ms (10-1000) | Float |
+| `chN_comp_makeup` | 0 to 24 dB | Float |
+| `chN_comp_knee` | -24 to 0 dB | Float |
+| `chN_eq_enabled` | true/false | Bool |
+| `chN_eq1-4_freq` | Hz | Float |
+| `chN_eq1-4_gain` | -15 to +15 dB | Float |
+| `chN_eq1-4_q` | 0.1 to 10 | Float |
+
+All properties above have `live: true` — updates take effect immediately via `PATCH /api/flows/{flow_id}/blocks/{block_id}/properties`. Same API the WS controller already uses for volume/mute.
+
+**UI Design:**
+- Each channel strip in the mixer panel gets a "Proc" or gear icon button
+- Clicking opens a **Processing popup** specific to that channel, with tabbed sections:
+  - **Gain:** single knob (-20 to +20 dB)
+  - **HPF:** enable toggle + frequency knob (20Hz-20kHz, log scale)
+  - **Gate:** enable toggle + threshold/attack/release knobs
+  - **Comp:** enable toggle + threshold/ratio/attack/release/makeup/knee
+  - **EQ:** enable toggle + 4-band parametric (freq/gain/Q per band)
+- Each enable toggle grays out its section when off
+- Values are sent to the backend via WS `AUDIO_DYNAMICS` message type
+
+**Backend changes:**
+1. `backend/src/ws/controller.ts` — new WS message type `AUDIO_DYNAMICS` with `{ channelIndex, propertyName, value }`, routes to `strom.properties.updateBlock(flowId, audioMixerBlockId, { properties: { [name]: value } })`
+2. No new API endpoints needed — uses existing block property update mechanism
+
+**Frontend changes:**
+1. New component `ProcessingPopup.tsx` with knob/slider controls per section
+2. Mixer panel: add "Proc" button per channel, opens popup for that channel's index
+3. Store current dynamics state in Zustand (synced via WS on connect)
+
+---
+
+### Feature: Audio Router (Channel Shuffling)
+
+**Goal:** Add channel routing/shuffling via Strom's `builtin.audiorouter` block. A checkered routing matrix in the mixer panel lets operators remap which input channels feed which mixer strips.
+
+**Why:** Broadcast mixers routinely need to reorder channels — e.g., when a multi-channel SDI source has languages on channels 1-4 but the operator wants channel 3 on strip 1, channel 1 on strip 2, etc. The audiorouter handles both 1:1 routing and fan-out (one input to multiple outputs).
+
+**Constraint:** All audiorouter properties are `live: false` — routing is static, set at flow construction time. Changing the matrix requires deactivating and reactivating the production (~5s flow restart). This is a Strom limitation — the audiorouter builds its internal GStreamer pipeline once and cannot reconfigure at runtime.
+
+**Architecture (Approach A — recommended):**
+- The flow-generator inserts a `builtin.audiorouter` block between audio sources and the mixer when a production has a routing matrix configured
+- Default state: 1:1 passthrough (input 0 → output 0, input 1 → output 1, etc.)
+- When the operator edits the matrix in Studio, changes are stored in the production document but NOT applied until the flow is rebuilt
+- "Apply & Restart" button in the router popup deactivates → rebuilds flow with new matrix → activates
+- Warning displayed: "Routing changes require flow restart (~5s)."
+
+**UI Design:**
+- "Audio Router" button in the mixer panel header
+- Opens a **Routing Matrix popup** with a checkered grid:
+  - **Rows** = input channels (labeled with source names)
+  - **Columns** = output channels / mixer strips (labeled ch1-ch16)
+  - **Checkboxes** on each intersection: checked = route this input channel to this output
+  - Helper: "1:1 Auto-fill", "Clear All", "Flip Layout" buttons
+- Shows current (active) vs pending (unsaved) matrix side by side
+- "Apply & Restart" commits and triggers flow rebuild
+
+**Routing matrix format (JSON):**
+```json
+{
+  "i0c0": ["o0c0", "o1c0"],
+  "i0c1": ["o0c1"],
+  "i1c0": ["o2c0"]
+}
+```
+Where `iXcY` = input X channel Y, `oXcY` = output X channel Y.
+
+**Backend changes:**
+1. `backend/src/db/types.ts` — add optional `audioRoutingMatrix` to production document
+2. `backend/src/lib/flow-generator.ts` — if `audioRoutingMatrix` exists, insert `builtin.audiorouter` block between source audio outputs and mixer inputs with `num_inputs`/`num_outputs`/`routing_matrix` properties. Wire: source → audiorouter → mixer
+3. `backend/src/ws/controller.ts` — new WS message `AUDIO_ROUTER_UPDATE` stores matrix in production doc, triggers flow restart
+
+**Frontend changes:**
+1. New component `AudioRouterPanel.tsx` with checkered grid matrix editor
+2. Mixer panel: add "Router" button, opens popup
+3. Show pending/active state with restart warning
+
+---
+
+### Feature: AES67 Audio-Only Input/Output
+
+**Goal:** Add `aes67` as an audio-only source/output type using Strom's built-in AES67 blocks. Enables network-based multichannel audio — microphones, stage boxes, intercom feeds, external audio consoles — arriving as AES67 multicast streams.
+
+**Why AES67 specifically:**
+- **Industry standard** — interoperability layer for Dante, Ravenna, Livewire, Q-LAN, WheatNet
+- **Low latency** — 1ms packet time, PTP clock sync
+- **Multicast** — one sender, many receivers, no per-stream bandwidth scaling
+- **Both directions** — `builtin.aes67_input` (receive) and `builtin.aes67_output` (send)
+- **Up to 8 channels per stream**, 48kHz, 16 or 24-bit
+
+**Strom blocks available:**
+| Block | Pads | Key Properties |
+|-------|------|---------------|
+| `builtin.aes67_input` | 1× audio_out | SDP (session description), decode (bool), latency_ms (default 20), interface |
+| `builtin.aes67_output` | 1× audio_in | session_name, sample_rate (32-192kHz), bit_depth (16/24), channels (1-8), host (multicast IP), port, QoS DSCP |
+
+**Prerequisites (not enforced by software — operator responsibility):**
+- Multicast-capable network
+- PTP clock synchronization (OS/hardware level)
+- QoS/DSCP marking (default: EF 0x2E)
+
+**Architecture:**
+- New `streamType: 'aes67'` for audio-only inputs
+- New `outputType: 'aes67'` for audio-only outputs
+- AES67 inputs appear in a separate "Audio Sources" section (alongside video sources) — they route directly to the audio mixer without touching the vision mixer
+- AES67 inputs have no video path in the flow — no video_out link, no offset block
+- Multi-channel AES67 streams auto-split into individual mixer strips (channels 1-N)
+
+**Backend changes:**
+1. `backend/src/db/types.ts` — add `'aes67'` to `StreamType` and `OutputType` unions
+2. `backend/src/routes/sources.ts` — add `'aes67'` to zod enum, extend with SDP field (for inputs) and AES67 config fields
+3. `backend/src/routes/outputs.ts` — add `'aes67'` to zod enum, extend with AES67 output config
+4. `backend/src/lib/flow-generator.ts` — for `aes67` input: create `builtin.aes67_input` block, route `audio_out` directly to mixer (no video path). For `aes67` output: create `builtin.aes67_output` block, route selected audio source to its `audio_in`
+5. `backend/src/ws/controller.ts` — no new messages needed (AES67 is static at flow construction)
+
+**Frontend changes:**
+1. `frontend/src/lib/api.ts` — add `'aes67'` to `StreamType`/`OutputType`
+2. `frontend/src/pages/SetupPage/SourcesPanel.tsx` — add AES67 source form with SDP textarea + decode/latency/interface fields
+3. `frontend/src/pages/SetupPage/OutputsPanel.tsx` — add AES67 output form with multicast address, port, sample rate, bit depth, channels
+
+**Comparison with other audio-only options:**
+| Format | Use Case | Strengths | Weaknesses |
+|--------|----------|-----------|------------|
+| AES67 | Networked live audio | Industry standard, multi-channel, multicast, PTP | Network setup required |
+| SRT | Internet/wireless audio | Works over WAN, encrypted | Not designed for local LAN audio |
+| Local file (WAV) | Playback only (media player) | Simple, no network | No live input capability |
+
+AES67 is the recommended audio-only format for networked live production. SRT can be added later for remote audio contribution. Local file playback is covered by the Media Player feature.
+
+---
+
 ### Design Decisions (2026-06-30)
 
 - **Media player configuration is per-production** — operators reuse by duplicating productions. No separate "media player source" presets.
@@ -414,3 +565,6 @@ The platform can be fully deployed on OSC at osaas.io:
 - **File format gating is advisory** — UI shows warnings for format/storage mismatches, never hard blocks.
 - **Jog wheel / shuttle excluded** — Companion now supports DaVinci Speed Editor and Contour shuttle via native HID; transport controls use standard button presses.
 - **All formats local-friendly, network/S3 restricted** — MXF unusable over S3 (index at end). MP3 ideal for all storage backends.
+- **Per-channel dynamics use Strom block properties API** — all dynamics properties are `live: true` (instant), no flow restart needed. Property names follow pattern `chN_<section>_<parameter>`.
+- **Audio router requires flow restart** — Strom's `builtin.audiorouter` has `live: false`. Matrix edits are staged, then applied via deactivate → rebuild → activate (~5s). Default is 1:1 passthrough (no router in flow) until operator configures routing.
+- **AES67 is the audio-only network format** — industry standard, multicast, PTP-synced, up to 8 channels/stream. Requires multicast network + PTP clock (OS-level, not enforced by software). SRT for remote/WAN audio can be added later.
