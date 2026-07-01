@@ -8,16 +8,10 @@ const ROOT = join(__dirname, "..");
 const PORT = parseInt(process.env.PORT || "3100");
 
 const CONTAINERS = {
-  local: {
     couchdb:   "open-live-local-db",
     strom:     "open-live-local-strom",
     "open-live": "open-live-local-backend",
     studio:     "open-live-local-studio",
-  },
-  hybrid: {
-    couchdb:    "open-live-hybrid-db",
-    strom:      "open-live-hybrid-strom",
-  },
 };
 
 const VERSION_PROBES = {
@@ -99,12 +93,9 @@ async function probeVersion(svc, ctr) {
 
 async function allStatus() {
   const result = {};
-  for (const [mode, containers] of Object.entries(CONTAINERS)) {
-    result[mode] = {};
-    for (const [name, cid] of Object.entries(containers)) {
-      const info = dockerPs(cid);
-      result[mode][name] = await probeVersion(name, info);
-    }
+  for (const [name, cid] of Object.entries(CONTAINERS)) {
+    const info = dockerPs(cid);
+    result[name] = await probeVersion(name, info);
   }
   return result;
 }
@@ -151,7 +142,7 @@ const server = createServer(async (req, res) => {
       sendJson(res, 400, { ok: false, error: "Invalid mode: " + mode });
       return;
     }
-    const result = runCompose(mode, "ps-json");
+    const result = runCompose("local", "ps-json");
     try {
       const containers = (result.output || "").split("\n").filter(Boolean).map(function(line) {
         try { return JSON.parse(line); } catch { return null; }
@@ -169,7 +160,7 @@ const server = createServer(async (req, res) => {
       sendJson(res, 400, { ok: false, error: "Invalid mode: " + mode });
       return;
     }
-    const result = runCompose(mode, "down");
+    const result = runCompose("local", "down");
     sendJson(res, result.ok ? 200 : 500, result);
     return;
   }
@@ -180,20 +171,16 @@ const server = createServer(async (req, res) => {
       sendJson(res, 400, { ok: false, error: "Invalid mode: " + mode });
       return;
     }
-    const result = runCompose(mode, "up");
+    // Both modes use the local compose file; hybrid only starts CouchDB + Strom
+    const action = mode === "hybrid" ? "up couchdb strom" : "up";
+    const result = runCompose("local", action);
     sendJson(res, result.ok ? 200 : 500, result);
     return;
   }
 
   if (path.startsWith("/api/restart/") && req.method === "POST") {
-    const parts = path.split("/");
-    const mode = parts[3];
-    const name = parts[4];
-    if (!["local", "hybrid"].includes(mode)) {
-      sendJson(res, 400, { ok: false, error: "Invalid mode: " + mode });
-      return;
-    }
-    const cid = CONTAINERS[mode] && CONTAINERS[mode][name];
+    const name = path.split("/")[3];
+    const cid = CONTAINERS[name];
     if (!cid) {
       sendJson(res, 400, { ok: false, error: "Unknown container: " + name });
       return;
@@ -287,67 +274,48 @@ const PAGE = [
 "function fmtUptime(ms){if(ms<=0)return'';var s=Math.floor(ms/1000);var m=Math.floor(s/60);s%=60;var h=Math.floor(m/60);m%=60;if(h>0)return h+'h '+m+'m';if(m>0)return m+'m';return s+'s'}",
 "function render(d){",
 " var h='';",
-" // Collect all containers across both modes with their mode label",
-" var allCards=[];",
-" var modeStats={};",
-" for(var mode in d){",
-"  var ctr=d[mode];",
-"  var total=0,running=0;",
-"  for(var name in ctr){",
-"   var c=ctr[name];",
-"   total++;",
-"   if(c&&c.status==='running')running++;",
-"   allCards.push({mode:mode,name:name,ctr:c});",
-"  }",
-"  modeStats[mode]={total:total,running:running};",
+" var total=0,running=0;",
+" for(var name in d){",
+"  total++;",
+"  if(d[name]&&d[name].status==='running')running++;",
 " }",
-" var allTotal=allCards.length;",
-" var allRunning=allCards.filter(function(a){return a.ctr&&a.ctr.status==='running'}).length;",
-" var allActive=allRunning>0;",
-" // Dynamic title based on which modes are running",
+" var allActive=running>0;",
+" // Title based on what's running",
 " var title='MODE STOPPED';",
-" if(modeStats.local&&modeStats.local.running>0&&modeStats.hybrid&&modeStats.hybrid.running>0)title='MODE';",
-" else if(modeStats.local&&modeStats.local.running>0)title='LOCAL MODE';",
-" else if(modeStats.hybrid&&modeStats.hybrid.running>0)title='HYBRID MODE';",
-" // Single MODE section",
+" var studioRunning=d.studio&&d.studio.status==='running';",
+" var backendRunning=d['open-live']&&d['open-live'].status==='running';",
+" if(running>0&&studioRunning)title='LOCAL MODE';",
+" else if(running>0)title='HYBRID MODE';",
+" // Section",
 " h+='<div class=\"mode-section\">';",
 " h+='<div class=\"mode-header\"><h2>'+title+'</h2>';",
-" h+='<span class=\"mode-badge '+(allActive?'active':'inactive')+'\">'+(allActive?allRunning+'/'+allTotal+' running':allTotal+' stopped')+'</span>';",
-" // Per-mode counts",
-" for(var m in modeStats){",
-"  var ms=modeStats[m];",
-"  h+=' <span class=\"mode-badge '+(ms.running>0?'active':'inactive')+'\" style=\"font-size:10px\">'+m+': '+ms.running+'/'+ms.total+'</span>';",
-" }",
-" h+='</div>';",
-" // Card grid — all containers, labelled with mode",
+" h+='<span class=\"mode-badge '+(allActive?'active':'inactive')+'\">'+(allActive?running+'/'+total+' running':total+' stopped')+'</span></div>';",
+" // Cards",
 " h+='<div class=\"cards\">';",
-" for(var i=0;i<allCards.length;i++){",
-"  var ac=allCards[i];",
-"  var mode=ac.mode;",
-"  var name=ac.name;",
-"  var c=ac.ctr;",
+" var order=['couchdb','strom','open-live','studio'];",
+" for(var i=0;i<order.length;i++){",
+"  var name=order[i];",
+"  var c=d[name];",
 "  var st=c?c.status:'not created';",
 "  var hl=c?c.health:'N/A';",
 "  var img=c?c.image:'-';",
 "  var ver=c&&c.version?c.version:'-';",
 "  var up=c&&c.uptimeMs?fmtUptime(c.uptimeMs):'';",
-"  h+='<div class=\"card\"><div class=\"name\">'+name+' <span style=\"font-size:10px;color:var(--muted);font-weight:400\">('+mode+')</span></div>';",
+"  h+='<div class=\"card\"><div class=\"name\">'+name+'</div>';",
 "  h+='<div class=\"info\"><span>ver: '+ver+'</span><span>img: '+img+'</span><span>health: '+hl+'</span>'+(up?'<span>up: '+up+'</span>':'')+'</div>';",
 "  h+='<div class=\"row\">';",
 "  h+='<span class=\"status '+cls(st)+'\">'+dot(st)+' '+st.toUpperCase()+'</span>';",
-"  if(st==='running')h+='<button class=\"btn restart\" onclick=\"event.stopPropagation();restartOne(\\''+mode+'\\',\\''+name+'\\')\">restart</button>';",
+"  if(st==='running')h+='<button class=\"btn restart\" onclick=\"event.stopPropagation();restartOne(\\''+name+'\\')\">restart</button>';",
 "  h+='</div></div>'",
 " }",
 " h+='</div>';",
-" // Actions — one row per mode",
+" // Actions",
 " h+='<div class=\"actions\">';",
-" h+='<button class=\"btn start\" onclick=\"startMode(\\'local\\')\">Start Local</button>';",
+" if(!studioRunning)h+='<button class=\"btn start\" onclick=\"startMode(\\'local\\')\">Start Local</button>';",
 " h+='<button class=\"btn start\" onclick=\"startMode(\\'hybrid\\')\">Start Hybrid</button>';",
-" h+='<button class=\"btn show\" onclick=\"showContainers(\\'local\\')\">Show Local</button>';",
-" h+='<button class=\"btn show\" onclick=\"showContainers(\\'hybrid\\')\">Show Hybrid</button>';",
-" h+='<button class=\"btn stop\" onclick=\"stopAll()\">Stop All</button>';",
-" var localCtrs=d.local;",
-" if(localCtrs&&localCtrs.studio&&localCtrs.studio.status==='running')h+='<button class=\"btn studio-btn\" onclick=\"window.open(\\'http://'+window.location.hostname+':3000\\',\\'_blank\\')\">Open Studio</button>';",
+" h+='<button class=\"btn show\" onclick=\"showContainers()\">Show Containers</button>';",
+" if(running>0)h+='<button class=\"btn stop\" onclick=\"stopAll()\">Stop All</button>';",
+" if(studioRunning)h+='<button class=\"btn studio-btn\" onclick=\"window.open(\\'http://'+window.location.hostname+':3000\\',\\'_blank\\')\">Open Studio</button>';",
 " h+='</div></div>'",
 " document.getElementById('app').innerHTML=h;",
 " document.getElementById('clock').textContent=new Date().toLocaleTimeString();",
@@ -358,22 +326,22 @@ const PAGE = [
 " catch(e){document.getElementById('app').innerHTML='<p style=\"color:var(--red);text-align:center;padding:40px;\">Connection lost - retrying...</p>'}",
 " setTimeout(poll,5000)",
 "}",
-"async function showContainers(mode){",
+"async function showContainers(){",
 " var modal=document.getElementById('modal');",
 " var overlay=document.getElementById('overlay');",
-" modal.innerHTML='<div class=\"modal-header\"><h3>'+mode.toUpperCase()+' MODE</h3><button class=\"close-btn\" onclick=\"closeModal()\">x</button></div><div class=\"empty-state\">Loading...</div>';",
+" modal.innerHTML='<div class=\"modal-header\"><h3>CONTAINERS</h3><button class=\"close-btn\" onclick=\"closeModal()\">x</button></div><div class=\"empty-state\">Loading...</div>';",
 " overlay.classList.add('open');",
 " try{",
-"  var r=await fetch(API+'/ps/'+mode);",
+"  var r=await fetch(API+'/ps/local');",
 "  var d=await r.json();",
 "  var c='<div class=\"modal-header\"><h3>'+mode.toUpperCase()+' MODE - docker compose ps</h3><button class=\"close-btn\" onclick=\"closeModal()\">x</button></div>';",
 "  if(d.ok&&d.containers&&d.containers.length>0){",
 "   c+='<table class=\"ps-table\"><thead><tr><th>Container Name</th><th>Image</th><th>Status</th></tr></thead><tbody>';",
 "   for(var i=0;i<d.containers.length;i++){var cn=d.containers[i];c+='<tr><td>'+cn.Name+'</td><td>'+cn.Image+'</td><td>'+cn.Status+'</td></tr>'}",
 "   c+='</tbody></table>';",
-"   c+='<div class=\"modal-footer\"><button class=\"btn\" onclick=\"closeModal()\">Close</button><button class=\"btn stop\" onclick=\"stopMode(\\''+mode+'\\')\">Stop All</button></div>'",
+"   c+='<div class=\"modal-footer\"><button class=\"btn\" onclick=\"closeModal()\">Close</button><button class=\"btn stop\" onclick=\"stopAll()\">Stop All</button></div>'",
 "  }else{",
-"   c+='<div class=\"empty-state\">No containers running in '+mode.toUpperCase()+' mode.</div>';",
+"   c+='<div class=\"empty-state\">No containers running.</div>';",
 "   if(d.error)c+='<div class=\"empty-state\" style=\"color:var(--red)\">Error: '+d.error+'</div>';",
 "   c+='<div class=\"modal-footer\"><button class=\"btn\" onclick=\"closeModal()\">Close</button></div>'",
 "  }",
@@ -399,10 +367,10 @@ const PAGE = [
 "  else{toast('Error: '+(d.error||'unknown'),false)}",
 " }catch(e){toast('Request failed: '+e.message,false)}",
 "}",
-"async function restartOne(mode,name){",
+"async function restartOne(name){",
 " toast('Restarting '+name+'...',true);",
 " try{",
-"  var r=await fetch(API+'/restart/'+mode+'/'+name,{method:'POST'});",
+"  var r=await fetch(API+'/restart/'+name,{method:'POST'});",
 "  var d=await r.json();",
 "  if(d.ok){toast(name+' restarted.',true);setTimeout(poll,2000)}",
 "  else{toast('Error: '+(d.error||'unknown'),false)}",
@@ -410,15 +378,13 @@ const PAGE = [
 "}",
 "function closeModal(){document.getElementById('overlay').classList.remove('open')}",
 "async function stopAll(){",
-" if(!confirm('Stop and remove ALL containers in both modes?'))return;",
+" if(!confirm('Stop and remove ALL containers?'))return;",
 " toast('Stopping all containers...',true);",
 " try{",
-"  var r1=await fetch(API+'/stop/local',{method:'POST'});",
-"  var r2=await fetch(API+'/stop/hybrid',{method:'POST'});",
-"  var d1=await r1.json();",
-"  var d2=await r2.json();",
-"  if(d1.ok||d2.ok){toast('All containers stopped and removed.',true);poll()}",
-"  else{toast('Error stopping containers.',false)}",
+"  var r=await fetch(API+'/stop/local',{method:'POST'});",
+"  var d=await r.json();",
+"  if(d.ok){toast('All containers stopped and removed.',true);poll()}",
+"  else{toast('Error: '+(d.error||'unknown'),false)}",
 " }catch(e){toast('Request failed: '+e.message,false)}",
 "}",
 "function toast(msg,ok){",
