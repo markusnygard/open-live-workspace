@@ -670,6 +670,10 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 
 > Installation guides and small feature enhancements to write when ready.
 
+### Upstream PR Preparation
+- **Backend (7 commits):** Need PR to Eyevinn/open-live. Key changes: NDI/SDI source+output types, capabilities endpoint (NDI/SDI/AES67 detection), SDI audio routing fix, production creation with sources, companion module /controllers endpoint, NV12 videoformat in flow-generator, validation accepting booleans. PR description should cover: what was added (new stream types, capabilities), why (broadcast hardware integration), breaking changes (none — backward compatible).
+- **Frontend (3 commits):** Need PR to Eyevinn/open-live-studio. Key changes: NDI discovery dropdown, SDI device picker, LAN WHEP hostname rewrite, PGM proxy bypass, API base URL doubling fix, capabilities-driven show/hide of hardware-dependent types. PR description: UX additions for NDI/SDI hardware, network access fixes.
+- **PR hygiene:** Rebase on upstream main, squash related commits into logical groups if needed, test locally before submitting, link to companion module PR if submitted separately.
 ### Quick Implementation
 - **AES67 capability detection** — add `aes67: boolean` to capabilities endpoint (check Strom `/api/blocks` for `builtin.aes67_input`). Add `aes67` to `StreamType` union, frontend `Capabilities` interface, and SourcesPanel useEffect (hide AES67 button when no AES67 blocks). ~15 lines across 3 files.
 
