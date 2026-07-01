@@ -556,6 +556,93 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 
 ---
 
+### Feature: USB Fader Control (MIDI Bridge)
+
+**Goal:** Connect any USB MIDI fader controller (motorized fader banks, compact controllers, or full audio consoles in MIDI mode) to Open Live for hands-on audio mixing. A lightweight Node.js bridge translates MIDI events to WebSocket `AUDIO_SET` messages, reusing the existing controller infrastructure.
+
+**Why:** Keyboard/mouse mixing is slow. Physical faders give the operator fast access to volume, mute, and channel selection. The bridge is a stateless translator — it doesn't duplicate the mixer, it just pipes MIDI events to where they're already handled.
+
+**Architecture:**
+
+```
+[USB Fader] → USB MIDI → [Bridge (Node.js)] → WS {AUDIO_SET} → [Open Live Backend] → Strom mixer
+                ↑ feedback (motor faders, LED mutes) ← WS {AUDIO_STATE} ←
+```
+
+- Bridge is a ~200-line Node.js script using the `midi` npm package (or `easymidi`)
+- Runs on the machine where the fader is plugged in (same machine as Companion, typically)
+- On startup: reads production ID → fetches production doc → loads fader config
+- Translates MIDI CC fader moves → `AUDIO_SET {elementId, property:'volume', value:0.0-1.0}`
+- Translates MIDI note/CC mute presses → `AUDIO_SET {elementId, property:'mute', value:true/false}`
+- Subscribes to WS `AUDIO_STATE` for motorized fader feedback (position) and mute LED state
+- Stateless — no database, no GUI, no Docker. Just `node midi-bridge.js --open-live-url http://192.168.1.11:8000 --production prod-xxx`
+
+**Two-tier preset system:**
+
+1. **Protocol handler** — translates wire format into standard events:
+   - `midi` — CC, Note, PitchBend, NRPN, Sysex. Covers 95% of controllers.
+   - Add more handlers as needed (OSC for Waves SoundGrid, TCP RAW for Skaarhoj)
+
+2. **Mapping preset** — maps protocol events to Open Live channel operations:
+
+| Preset | Protocol | Faders | Motorized | Special notes |
+|--------|----------|--------|-----------|---------------|
+| `behringer-xtouch` | MCU (PitchBend) | 8+1 | Yes | 14-bit faders, VPots, scribble strips |
+| `behringer-xtouch-compact` | MCU | 8+1 | No | Same layout, no motors |
+| `behringer-xtouch-mini` | CC 0-7, ch 11 | 8 | No | Layer A/B switch |
+| `icon-platform-m-plus` | MCU | 8+1 | Yes | Jog wheel, transport |
+| `icon-platform-nano` | CC 70-77 | 1 | No | Single fader, compact |
+| `korg-nanokontrol2` | CC 0-7 | 8 | No | Pocket-sized, cheap |
+| `presonus-faderport` | MCU-like | 1 | Yes | Single motorized fader |
+| `akai-midimix` | CC 16-23 | 8+1 | No | 9 faders, 24 knobs, mute/rec buttons |
+| `makepro-x` | MIDI CC | varies | varies | Generic MIDI class-compliant |
+| `allenheath-qu16` | MIDI CC + Notes via USB-B | 16+1 | Yes | QU-16 in MIDI DAW mode. CC for faders, notes for mutes, receives CC for motor feedback. QU's own processing and mixing bypassed — Strom handles all EQ/dynamics/mixing. QU preamps feed audio via USB-B interface or optional AES67 output. |
+| `allenheath-sq5` | MIDI via USB-B | 16+1 | Yes | SQ-5 in MIDI DAW mode. 16 motorized faders (6 layers), scribble strips, soft keys. SQ preamps → USB audio or AES67 to Strom. Motor faders follow Open Live mixer state bidirectionally. |
+| `waves-lv1` | MIDI or OSC (via SoundGrid driver) | varies | Yes | LV1 bridges MIDI/OSC through SoundGrid. Configure LV1 MIDI out → bridge host. |
+| `skaarhoj` | RAW TCP (proprietary) or configurable to MIDI | varies | Yes | Simpler: configure Skaarhoj panel to speak MIDI via USB. TCP RAW handler added later if needed. |
+
+**Per-production fader config** — stored in the production document:
+
+```json
+{
+  "faderConfig": {
+    "model": "allenheath-qu16",
+    "channelMap": {
+      "fader_0": "ch1",
+      "fader_1": "ch2",
+      "fader_2": "ch3",
+      "fader_3": "main"
+    },
+    "midiInput": "QU-16 MIDI 1",
+    "midiOutput": "QU-16 MIDI 1"
+  }
+}
+```
+
+**Operator workflow (room switch / next day):**
+1. Plug in same fader model
+2. Start bridge: `node midi-bridge.js --production prod-xxx`
+3. Bridge fetches production doc, finds `faderConfig`, loads preset + channel map
+4. MIDI events flow — operator doesn't touch keyboard
+
+**Backend changes:** None. Uses existing WS `AUDIO_SET` / `AUDIO_STATE` messages. The bridge is a separate tool, not part of Open Live's codebase.
+
+**Bridge implementation:**
+1. New repo or directory: `open-live-tools/midi-bridge/`
+2. Package: `midi` or `easymidi` (npm), `ws` (npm)
+3. CLI flags: `--open-live-url`, `--production`, `--model` (override preset), `--list-midi` (list available MIDI ports)
+4. Reads production document from Open Live API for `faderConfig`
+5. Opens WS to `/ws/productions/{id}/controller` for bidirectional communication
+
+**Controllers acting as both mixer AND fader surface (QU-16, SQ-5, etc.):**
+- Audio path: Console preamps → USB audio interface or AES67 output → Strom (via AES67 input block)
+- Control path: Console MIDI OUT → bridge → Open Live WS → Strom mixer block properties
+- Console's internal EQ/dynamics/mixing bypassed — Strom handles all processing
+- Motor faders on console follow Open Live's state via MIDI feedback
+- Mute buttons on console light up matching Open Live's mute state
+
+---
+
 ### Design Decisions (2026-06-30)
 
 - **Media player configuration is per-production** — operators reuse by duplicating productions. No separate "media player source" presets.
@@ -568,3 +655,6 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 - **Per-channel dynamics use Strom block properties API** — all dynamics properties are `live: true` (instant), no flow restart needed. Property names follow pattern `chN_<section>_<parameter>`.
 - **Audio router requires flow restart** — Strom's `builtin.audiorouter` has `live: false`. Matrix edits are staged, then applied via deactivate → rebuild → activate (~5s). Default is 1:1 passthrough (no router in flow) until operator configures routing.
 - **AES67 is the audio-only network format** — industry standard, multicast, PTP-synced, up to 8 channels/stream. Requires multicast network + PTP clock (OS-level, not enforced by software). SRT for remote/WAN audio can be added later.
+- **Fader bridge is a separate tool** — not part of Open Live backend or frontend. Reuses existing WS `AUDIO_SET`/`AUDIO_STATE` protocol. No new backend endpoints needed.
+- **MIDI is the universal protocol** — 95% of controllers speak MIDI CC/Note/PitchBend. Additional protocol handlers (OSC, TCP RAW) added as needed.
+- **Per-production fader config survives room changes** — same production, different room, same fader model: plug in, start bridge, works. Channel mapping stored in production document.
