@@ -658,3 +658,83 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 - **Fader bridge is a separate tool** — not part of Open Live backend or frontend. Reuses existing WS `AUDIO_SET`/`AUDIO_STATE` protocol. No new backend endpoints needed.
 - **MIDI is the universal protocol** — 95% of controllers speak MIDI CC/Note/PitchBend. Additional protocol handlers (OSC, TCP RAW) added as needed.
 - **Per-production fader config survives room changes** — same production, different room, same fader model: plug in, start bridge, works. Channel mapping stored in production document.
+
+---
+
+### Feature: Hybrid Production Rig (Headscale/WireGuard + OSC)
+
+**Goal:** Design the networking architecture for a hybrid deployment where the production rack (Strom, CouchDB, audio interface, DeckLink cards, networking switch) sits on-site behind NAT with outbound-only internet, and the control plane (Open Live backend, Studio UI) runs on OSC in the cloud.
+
+**Rack hardware (on-prem):**
+- Strom server with GPU, 16× SDI (Quad 2 + Duo 2 or similar)
+- Netgear AV-line switch (multicast-capable, IGMP snooping)
+- Ubiquiti EdgeRouter — eth0 to internet (WAN), eth1 to Netgear switch (production LAN, DHCP server)
+- Audio interface (e.g., RME Fireface UFX III, Behringer XR18 for testing)
+- CouchDB (Docker) on the Strom machine or a separate small server
+
+**OSC cloud:**
+- Open Live backend service
+- Open Live Studio service
+- CouchDB (optional — on-prem preferred for resilience)
+
+**Networking — Headscale/WireGuard VPN approach (recommended):**
+
+```
+                          ┌─────────────────────────────────────────┐
+                          │                 INTERNET                │
+                          └─────┬───────────────────────┬───────────┘
+                                │                       │
+                         ┌──────▼──────┐        ┌───────▼────────┐
+                         │ Headscale   │        │ OSC Cloud      │
+                         │ VPS ($5/mo) │        │ (osaas.io)     │
+                         │ WG:10.0.0.1 │        │                │
+                         │ pub:x.x.x.x │        │ Open Live      │
+                         │             │        │ Open Live Stu.  │
+                         │ iptables:   │        │                │
+                         │ :8080→10.0. │        └───────┬────────┘
+                         │  0.100:8080 │                │
+                         │ :5000→10.0. │    REST API    │
+                         │  0.100:5000 │◄───────────────┘
+                         └──────▲──────┘   STROM_URL=http://x.x.x.x:8080
+                                │                 STROM_ACCESS_TOKEN=dev-key-local
+                          ┌─────┴──────┐
+                          │  EdgeRouter│──────── SRT PGM caller ────► Cloud SRT ingest
+                          │            │──────── WHEP/WebRTC ───────► DERP relay → Browser
+                          │  Production│
+                          │  LAN (DHCP)│
+                          └─────┬──────┘
+                                │
+                    ┌───────────┼───────────┐
+                    │           │           │
+              ┌─────▼─────┐ ┌──▼──┐ ┌──────▼──────┐
+              │  Strom    │ │CouchDB│ │Netgear AV   │
+              │  WG:10.0. │ │      │ │Switch       │
+              │  0.100    │ │      │ │(multicast)  │
+              └─────┬─────┘ └──────┘ └──────┬──────┘
+                    │                       │
+              ┌─────▼─────┐           ┌─────▼─────┐
+              │Audio I/F  │           │DeckLink   │
+              │(USB/ALSA) │           │Quad2+Duo2 │
+              └───────────┘           └───────────┘
+```
+
+**Why Headscale over plain WireGuard:**
+- **DERP relays solve WHEP NAT traversal for free** — browsers don't need to join the mesh. DERP relays WebRTC traffic through the Headscale infrastructure automatically.
+- **MagicDNS** — `strom.example.ts.net` instead of remembering IPs
+- **ACLs** — lock down which mesh nodes can reach Strom's API port
+- **Single binary client** — `tailscale up --login-server=https://headscale.example.com` on the Strom machine
+
+**Only Strom needs the Headscale client.** Open Live and Studio on OSC see it as a normal HTTP server at the VPS public IP. The VPS runs iptables to forward ports 8080 (REST API) and 5000/udp (WHEP) to Strom's mesh IP.
+
+**CouchDB placement — on-prem.** Keeps the rack self-sufficient for show-critical data. If internet drops, productions keep running. OSC's Open Live reconnects when the link comes back.
+
+**PGM output — SRT caller from Strom.** Strom initiates the SRT connection outbound to a cloud SRT ingest server. No inbound NAT hole needed.
+
+**Audio — USB interface (testing: XR18/18i20, production: RME Fireface UFX III).** Appears as multi-channel ALSA device. GStreamer sees all channels individually. Strom routes audio between sources, mixer, and output buses. For networked audio expansion, add AES67 output blocks to Strom (the Netgear AV-line switch is already multicast-capable).
+
+**Next steps (when implementing):**
+1. Provision Headscale VPS, install `headscale`, configure ACLs
+2. Add Tailscale client to `open_live_hybrid/docker-compose.yml` as a sidecar service
+3. Set iptables port forwarding on VPS
+4. Create Open Live + Studio instances on OSC with `STROM_URL=http://<vps-ip>:8080`
+5. Verify: WHEP monitoring works through DERP, PGM SRT streams outbound, REST API functional through VPS
