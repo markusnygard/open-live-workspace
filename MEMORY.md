@@ -254,3 +254,163 @@ The platform can be fully deployed on OSC at osaas.io:
 | 2026-06-29 | **DeckLink root cause**: Patched decklink plugin (1.22.12 from `patched-plugins-v1.0-gst1.22.12`) bundled in `strom-full` is incompatible with Desktop Video 15.3. System gst-plugins-bad 1.26.5 (reinstalled via apt) works. Dockerfile updated to reinstall system package. |
 | 2026-06-29 | Rebuilt Strom from source twice (queue fix, capsfilter+queue fix) — raw GStreamer works but Strom block system has pipeline construction bug at READY state. SDI deferred; Strom issue filed. |
 | 2026-06-29 | Flow-generator improvements: NV12 videoformat block between mixer and encoders, auto-assign default template (tmpl-default-vision-mixer) when production has none. |
+| 2026-06-29 | Companion module: Added `/api/v1/productions/:id/controllers` endpoint, added `id` field mapping to list endpoint. |
+| 2026-06-30 | **DeckLink fully resolved**: Root cause was mount path mismatch — DeckLink API RUNPATH `$ORIGIN/blackmagic/DesktopVideo` looks for `libc++.so.1` relative to the API library. Changed mounts to `/lib/` paths per Strom docs. Cards: 1× DeckLink 4K Extreme (replaced), 1× Quad 2 (8 sub-devices, 0-7), 1× Duo 2 (4 sub-devices, 8-11) = 12 live SDI inputs. |
+| 2026-06-30 | **Strom Web UI**: Accessible at http://192.168.1.11:8080/ with login `admin` / `strom` (STROM_ADMIN_USER + bcrypt hash, escape `$` as `$$` in .env for Docker Compose). |
+| 2026-06-30 | Companion module rebuilt: page navigation via `set_page` action + `navigate_page` variable, all productions shown (active=green idle, inactive=grey), `production_slot_active` feedback. |
+| 2026-06-30 | Backend fixes: production creation now accepts `sources` array in initial POST, `ProductionPatch` schema accepts booleans, SDI device count via `SDI_DEVICE_COUNT` env var fallback (set to 12), SDI audio routing uses `audio_out` pad (not `audio_out_0`). |
+| 2026-06-30 | **SDI+NDI hybrid production**: Tested successfully — 1× DeckLink SDI input + 2× NDI sources running simultaneously with video + audio. |
+
+---
+
+## Future Features
+
+> Design specs for features planned but not yet implemented.
+> Each feature is self-contained and can be built independently.
+
+---
+
+### Feature: Media Player Input
+
+**Goal:** Add `mediaplayer` as a new source/input type in Open Live Studio, using Strom's `builtin.media_player` block. Each media player instance acts as a separate video+audio input source with independent transport controls, playlist management, and clip trimming (mark in/out).
+
+**Why:** Broadcast productions need clip playback — bumpers, advertisements, video wall loops, audio jingles, background music. Multiple simultaneous media players let the operator, e.g., play a bumper from one player while a video loop runs on another and background audio plays from a third — all routed as separate mixer channels.
+
+**Architecture:**
+
+- New `streamType: 'mediaplayer'` in DB types, zod schemas, and frontend types
+- Source document stores per-instance config: `path` (folder/URL), `playlist` (clip list), `inMarker`/`outMarker` per clip, `loop` boolean
+- Flow-generator creates `builtin.media_player` block per media player source. On activation, the playlist is set via `POST /api/flows/{flow_id}/blocks/{block_id}/player/playlist`. Video output routes to the vision mixer via the standard offset block chain; audio output routes to the audio mixer on a separate channel strip.
+- Media player controls (play, pause, stop, skip next, skip prev, loop toggle, seek, goto) execute through Strom's `player.control()`, `player.seek()`, `player.goto()` API methods (already implemented in `strom.ts:700`). State polling via `player.getState()`.
+- Multiple media players can be added to a production — each gets a independent Strom block instance and independent controls.
+
+**Strom API already available:**
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/flows/{flow_id}/blocks/{block_id}/player/control` | POST | play, pause, stop, next, previous |
+| `/api/flows/{flow_id}/blocks/{block_id}/player/seek` | POST | Seek to position (ns) |
+| `/api/flows/{flow_id}/blocks/{block_id}/player/goto` | POST | Go to playlist index |
+| `/api/flows/{flow_id}/blocks/{block_id}/player/playlist` | POST | Set full playlist (file URIs) |
+| `/api/flows/{flow_id}/blocks/{block_id}/player/state` | GET | Get position, duration, state, current file |
+
+**UI Components (frontend):**
+
+- **SourcesPanel:** `mediaplayer` shown as a creatable type when Strom capabilities confirm block availability. Form fields: name + browse-button for clip folder (local disk, network share, or S3 URL — manual text entry as fallback).
+- **Media Browser modal:** File picker showing clips in the configured folder. Supports selecting multiple clips to create a playlist. Right-click to group selected clips.
+- **Clip Editor window:** Timeline-like thumbnail strip for a single clip, with draggable in/out markers. Shown when clicking a clip in the playlist.
+- **Media Controls bar (bottom or side panel):** Transport buttons (play/pause, stop, skip, loop toggle), clip name display, position/timecode counter. Shown when the production has at least one media player.
+- **Multiple players:** If >1 media player exists in production, a dropdown or tab selector switches between players. Each player keeps its own playlist, transport state, and marks independently.
+
+**Format recommendations (by storage type):**
+
+| Storage | Recommended | Works (caution) | Avoid |
+|---------|-------------|-----------------|-------|
+| Local SSD | Any format | — | — |
+| Network 1 Gbps | MP4/H.264 ≤50 Mbps, MP3, WAV 48kHz | ProRes 422, DNxHD | ProRes 4444 (>200 Mbps) |
+| Network 10 Gbps | Any format | — | — |
+| S3 | MP4/H.264 "fast-start" ≤50 Mbps, MP3, WAV (small) | Large WAV | MXF (index at end), >100 Mbps, files >2 GB |
+
+- **Video default:** MP4/H.264 (High@L4.1, 25-50 Mbps) + AAC audio — universal, GPU-decodable via NVENC
+- **Audio default:** WAV 48kHz/16-bit for quality; MP3 320kbps for small footprint (ideal for S3)
+- **Lossless recorders:** WAV 48kHz/24-bit PCM (see Recorder feature)
+- UI shows soft warnings for formats tagged "caution" based on selected storage type — never hard blocks
+
+**Backend changes:**
+1. `backend/src/db/types.ts` — add `'mediaplayer'` to `StreamType` union
+2. `backend/src/routes/sources.ts` — add `'mediaplayer'` to zod enum, extend SourceInput with playlist fields (optional on create, set via dedicated endpoint)
+3. `backend/src/lib/flow-generator.ts` — add new `else if` branch for `mediaplayer` stream type creating `builtin.media_player` block, routing video_out → offset → mixer, audio_out → mixer
+4. `backend/src/ws/controller.ts` — add new WS message types: `MEDIAPLAYER_CONTROL`, `MEDIAPLAYER_SEEK`, `MEDIAPLAYER_GOTO`, `MEDIAPLAYER_STATE` (periodic polling broadcast)
+5. `backend/src/routes/` — add `/api/v1/productions/:id/mediaplayers/:playerId/state` and `/control` proxy endpoints
+
+**Frontend changes:**
+1. `frontend/src/lib/api.ts` — add `'mediaplayer'` to `StreamType`, add `ApiMediaPlayer` interface, add `mediaPlayerApi` methods
+2. `frontend/src/pages/SetupPage/SourcesPanel.tsx` — add mediaplayer to `CREATABLE_STREAM_TYPES` (when capabilities allow), add folder browse + playlist fields
+3. `frontend/src/pages/production/` — new `MediaPlayerPanel.tsx` with transport controls, playlist editor, clip trimmer
+
+**Configuration is per-production** — playlist, marks, and loop settings live inside the production document's source assignments. To reuse a media player setup, duplicate the production (see Production Duplication feature).
+
+---
+
+### Feature: Recorder Output
+
+**Goal:** Add `recorder` as a new output type. Record programme output, clean feed (without DSK), or individual inputs to disk/network/S3. Supports PCM lossless format for post-production.
+
+**Architecture:**
+
+- New `outputType: 'recorder'` in output type enum
+- Each recorder output has a configured storage path (local folder, SMB/NFS share, or S3 bucket) and a file format
+- Flow-generator adds `splitmuxsink` (for compressed) or `filesink` (for raw PCM) elements to the flow
+- Audio source selection: PGM audio mix, or pre-fader audio from a specific input channel
+- Autonaming pattern: `{name}_{YYYY-MM-DD_HHmmss}.{ext}`
+
+**File formats:**
+| Format | Container | Video Codec | Audio Codec | Use Case |
+|--------|-----------|-------------|-------------|----------|
+| PCM (lossless) | WAV | none (audio only) | PCM 48kHz/24-bit | Post-production audio |
+| H.264+AAC | MP4 | H.264 | AAC 256kbps | General recording |
+| H.265+AAC | MP4 | H.265 | AAC 256kbps | 4K/UHD recording |
+
+**Backend changes:**
+1. `backend/src/db/types.ts` — add `'recorder'` to `OutputType` union
+2. `backend/src/routes/outputs.ts` — add `'recorder'` to zod enum, extend with recorder-specific fields
+3. `backend/src/lib/flow-generator.ts` — add `builtin.recorder` or raw `splitmuxsink`/`filesink` element for recorder outputs, wire audio/video from selected source
+4. `backend/src/ws/controller.ts` — add `RECORDER_CONTROL` WS message (start/stop/pause recording)
+
+**Frontend changes:**
+1. `frontend/src/lib/api.ts` — add `'recorder'` to OutputType, add recorder API methods
+2. `frontend/src/pages/SetupPage/OutputsPanel.tsx` — add recorder type with path browse, format select, audio source select
+
+---
+
+### Feature: Companion Module — Media Player & Recorder Sections
+
+**Goal:** Add "Media Player" and "Recorder" sections to the companion module for Stream Deck control.
+
+**Media Player section:**
+| Button | Action | Feedback |
+|--------|--------|----------|
+| PLAY | Send `MEDIAPLAYER_CONTROL {action:'play'}` | Green when playing |
+| PAUSE | Send `MEDIAPLAYER_CONTROL {action:'pause'}` | Yellow when paused |
+| STOP | Send `MEDIAPLAYER_CONTROL {action:'stop'}` | — |
+| SKIP NEXT | Send `MEDIAPLAYER_CONTROL {action:'next'}` | — |
+| SKIP PREV | Send `MEDIAPLAYER_CONTROL {action:'previous'}` | — |
+| LOOP TOGGLE | Toggle loop_playlist property | Green when looping |
+| CLIP 1-8 | Send `MEDIAPLAYER_GOTO {index:N}` | Green when clip at index is loaded |
+
+- When multiple media players exist, a dropdown or slot-based selector picks which player the buttons control.
+- Position counter shown as a companion variable: `$(OpenLive:mediaplayer_position)` formatted as `HH:MM:SS`.
+
+**Recorder section:**
+| Button | Action | Feedback |
+|--------|--------|----------|
+| RECORD | Send `RECORDER_CONTROL {action:'start'}` | Red when recording |
+| STOP | Send `RECORDER_CONTROL {action:'stop'}` | — |
+| PAUSE | Send `RECORDER_CONTROL {action:'pause'}` | Yellow when paused |
+
+**Companion module changes:**
+1. `src/actions.ts` — add media player transport actions (`mediaplayer_control`, `mediaplayer_goto`, `mediaplayer_loop_toggle`), recorder actions (`recorder_control`)
+2. `src/feedbacks.ts` — add media player state feedbacks (`mediaplayer_playing`, `mediaplayer_paused`, `mediaplayer_clip_active`), recorder feedbacks (`recorder_recording`)
+3. `src/variables.ts` — add `mediaplayer_position`, `mediaplayer_clip_name`, `mediaplayer_clip_total`
+4. `src/presets.ts` — add Media Player and Recorder presets with category groupings
+
+---
+
+### Feature: Production Duplication
+
+**Goal:** Deep-copy an existing production with all its sources, outputs, graphics, macros, and media player playlists. The duplicate gets a new ID and a user-chosen name.
+
+**Backend:** New endpoint `POST /api/v1/productions/:id/duplicate` with `{ name: string }` body. Creates a deep copy of the production document with new `_id`, copies all linked source assignments, output assignments, graphic assignments, macros, and template values. The new production starts in `inactive` state.
+
+**Frontend:** "Duplicate" button in the production row or edit modal.
+
+---
+
+### Design Decisions (2026-06-30)
+
+- **Media player configuration is per-production** — operators reuse by duplicating productions. No separate "media player source" presets.
+- **Recorder autonaming** — `{recorder_name}_{YYYY-MM-DD_HHmmss}.{format_ext}`. Configurable pattern for advanced use cases.
+- **Recorder PCM support** — WAV 48kHz/24-bit for lossless audio post-production.
+- **Storage path entry** — browse button (local/NAS) + manual text input fallback (SMB URL, S3 URL).
+- **File format gating is advisory** — UI shows warnings for format/storage mismatches, never hard blocks.
+- **Jog wheel / shuttle excluded** — Companion now supports DaVinci Speed Editor and Contour shuttle via native HID; transport controls use standard button presses.
+- **All formats local-friendly, network/S3 restricted** — MXF unusable over S3 (index at end). MP3 ideal for all storage backends.
