@@ -72,6 +72,8 @@ services:
     working_dir: /app
     volumes:
       - ../backend:/app
+      # Mount Strom data volume (same path as Strom uses: /data)
+      - strom-data:/data
     # host-gateway lets bridge containers reach host-mode containers at host.docker.internal
     extra_hosts:
       - "host.docker.internal:host-gateway"
