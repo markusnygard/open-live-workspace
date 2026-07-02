@@ -45,6 +45,8 @@ services:
       - SYS_NICE
     volumes:
       - strom-data:/data
+      # Mount host recordings directory for Strom recorder
+      - ${HOME:-/home/nygard}/rec:/data/media/rec:rw
       - /dev/blackmagic:/dev/blackmagic
       - /usr/lib/libDeckLinkAPI.so:/lib/libDeckLinkAPI.so:ro
       - /usr/lib/libDeckLinkPreviewAPI.so:/lib/libDeckLinkPreviewAPI.so:ro
@@ -72,8 +74,10 @@ services:
     working_dir: /app
     volumes:
       - ../backend:/app
-      # Mount Strom data volume (same path as Strom uses: /data)
+      # Mount Strom data volume (same path as Strom uses)
       - strom-data:/data
+      # Mount host recordings directory for browser and Strom recorder
+      - ${HOME:-/home/nygard}/rec:/data/media/rec:rw
     # host-gateway lets bridge containers reach host-mode containers at host.docker.internal
     extra_hosts:
       - "host.docker.internal:host-gateway"
