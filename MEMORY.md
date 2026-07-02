@@ -652,7 +652,30 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 
 - **Media player configuration is per-production** — operators reuse by duplicating productions. No separate "media player source" presets.
 - **Recorder autonaming** — `{recorder_name}_{YYYY-MM-DD_HHmmss}.{format_ext}`. Configurable pattern for advanced use cases.
-- **Recorder PCM support** — WAV 48kHz/24-bit for lossless audio post-production.
+- **Recorder UI bar added to MEMORY.md spec (2026-07-02)** — mockup at `~/.superpowers-brainstorm-recorder-mockup.html`, served on port 8765. Same badge pattern (PLAY=green, REC=orange) to be reused for Media Player panel.
+
+---
+
+### Feature: Recorder UI — Production View Panel
+
+**Goal:** Orange REC badge icon in the production top bar. Only visible when the active production has recorder outputs assigned. Clicking toggles a floating bar in the lower right corner with per-recorder controls and status.
+
+**Design (finalized 2026-07-02):**
+- **Badge:** Orange rounded rect (44×20px) with red dot + "REC" text, matching existing SVG icon style in the top bar
+- **Bar position:** Fixed lower-right, floating above production content. Not a docked panel like audio/controller.
+- **Per-recorder column:** Name (editable), format tag (MP4/MKV), directory path, free disk space, duration counter (HH:MM:SS, only when recording), current filename
+- **States:** Red dot = recording, grey dot = stopped, orange dot = paused
+- **Buttons (recording):** STOP (solid red bg, white text) — SPLIT (blue outline)
+- **Buttons (stopped):** REC (red outline)
+
+**Backend:** No new API needed — `RECORDER_SPLIT` WS message already implemented in controller.ts. Recorders start/stop with flow lifecycle (production activate/deactivate).
+
+**Frontend (ControllerPage/index.tsx):**
+1. Add `recorder` to `Panels` type
+2. Add REC badge SVG icon component
+3. Conditionally include in `PANEL_ICONS` when `outputAssignments.some(a → output.outputType === 'recorder')`
+4. Add `RecorderBar` floating component (position: absolute, bottom/right)
+5. Wire REC/STOP/SPLIT buttons to WS messages
 - **Storage path entry** — browse button (local/NAS) + manual text input fallback (SMB URL, S3 URL).
 - **File format gating is advisory** — UI shows warnings for format/storage mismatches, never hard blocks.
 - **Jog wheel / shuttle excluded** — Companion now supports DaVinci Speed Editor and Contour shuttle via native HID; transport controls use standard button presses.
