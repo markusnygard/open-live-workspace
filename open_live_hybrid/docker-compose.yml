@@ -29,7 +29,7 @@ services:
       - STROM_SERVER_ICE_SERVERS=${STROM_ICE_SERVERS:-}
     volumes:
       - strom-data:/data
-      - ${HOME:-/home/nygard}/media/rec:/data/media/rec:rw
+      - ${HOME:-/home/nygard}/media:/data/media:rw
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 5s
