@@ -185,6 +185,32 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (path === "/api/hybrid/autostart") {
+    if (req.method === "GET") {
+      try {
+        const current = sh("docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' \"" + CONTAINERS.hybrid.strom + "\"", { timeout: 3000 });
+        return sendJson(res, 200, { autoStart: current === "unless-stopped" || current === "always" });
+      } catch {
+        return sendJson(res, 200, { autoStart: false });
+      }
+    }
+    if (req.method === "POST") {
+    // Toggle whether hybrid containers auto-start on boot
+    try {
+      const current = sh("docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' \"" + CONTAINERS.hybrid.strom + "\"", { timeout: 3000 });
+      const enabled = current === "unless-stopped" || current === "always";
+      const newPolicy = enabled ? "no" : "unless-stopped";
+      for (const [, cid] of Object.entries(CONTAINERS.hybrid)) {
+        sh("docker update --restart=" + newPolicy + " \"" + cid + "\"", { timeout: 5000 });
+      }
+      sendJson(res, 200, { ok: true, autoStart: !enabled });
+    } catch (e) {
+              sendJson(res, 500, { ok: false, error: e.stderr || e.message });
+      }
+      return;
+    }
+  }
+
   if (path.startsWith("/api/restart/") && req.method === "POST") {
     const parts = path.split("/");
     const mode = parts[3];
@@ -253,6 +279,8 @@ const PAGE = [
 ".btn.stop{border-color:var(--red);color:var(--red)}.btn.stop:hover{background:#2a1515}",
 ".btn.start{border-color:var(--green);color:var(--green)}.btn.start:hover{background:#152a1a}",
 ".btn.studio-btn{border-color:var(--accent);color:var(--accent)}.btn.studio-btn:hover{background:#0d1a2a}",
+".btn.autostart-on{border-color:var(--green);color:var(--green)}.btn.autostart-on:hover{background:#152a1a}",
+".btn.autostart-off{border-color:var(--amber);color:var(--amber)}.btn.autostart-off:hover{background:#2a2015}",
 ".card .row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px}",
 ".card .row .status{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600}",
 ".card .row .status.running{color:var(--green)}.card .row .status.stopped{color:var(--red)}.card .row .status.unknown{color:var(--muted)}",
@@ -281,7 +309,7 @@ const PAGE = [
 "<main id=\"app\"><p style=\"color:var(--muted);text-align:center;padding:40px;\">Loading...</p></main>",
 "<div class=\"overlay\" id=\"overlay\" onclick=\"if(event.target===this)closeModal()\"><div class=\"modal\" id=\"modal\"></div></div>",
 "<script>",
-"var API='/api';var pc=0;",
+"var API='/api';var pc=0;var autoStart=false;",
 "function cls(s){if(!s)return'unknown';if(s==='running'||s==='healthy'||s==='starting')return'running';return'stopped'}",
 "function dot(s){return'<span class=\"dot '+cls(s)+'\"></span>'}",
 "function fmtUptime(ms){if(ms<=0)return'';var s=Math.floor(ms/1000);var m=Math.floor(s/60);s%=60;var h=Math.floor(m/60);m%=60;if(h>0)return h+'h '+m+'m';if(m>0)return m+'m';return s+'s'}",
@@ -315,6 +343,7 @@ const PAGE = [
 "  h+='<button class=\"btn start\" onclick=\"startMode(\\''+mode+'\\')\">Start</button>';",
 "  h+='<button class=\"btn show\" onclick=\"showContainers(\\''+mode+'\\')\">Show Containers</button>';",
 "  if(running>0)h+='<button class=\"btn stop\" onclick=\"stopMode(\\''+mode+'\\')\">Stop All</button>';",
+"  if(mode==='hybrid')h+='<button class=\"btn '+(autoStart?'autostart-on':'autostart-off')+'\" onclick=\"toggleAutoStart()\">'+(autoStart?'Disable Boot Start':'Enable Boot Start')+'</button>';",
 "  if(mode==='local'&&ctr.studio&&ctr.studio.status==='running')h+='<button class=\"btn studio-btn\" onclick=\"window.open(\\'http://'+window.location.hostname+':3000\\',\\'_blank\\')\">Open Studio</button>';",
 "  h+='</div></div>'",
 " }",
@@ -326,6 +355,10 @@ const PAGE = [
 " try{var r=await fetch(API+'/status');var d=await r.json();render(d)}",
 " catch(e){document.getElementById('app').innerHTML='<p style=\"color:var(--red);text-align:center;padding:40px;\">Connection lost - retrying...</p>'}",
 " setTimeout(poll,5000)",
+"}",
+"async function checkAutoStart(){",
+" try{var r=await fetch(API+'/hybrid/autostart');var d=await r.json();autoStart=d.autoStart}",
+" catch(e){autoStart=false}",
 "}",
 "async function showContainers(mode){",
 " var modal=document.getElementById('modal');",
@@ -377,6 +410,15 @@ const PAGE = [
 "  else{toast('Error: '+(d.error||'unknown'),false)}",
 " }catch(e){toast('Request failed: '+e.message,false)}",
 "}",
+"async function toggleAutoStart(){",
+" toast('Toggling boot start...',true);",
+" try{",
+"  var r=await fetch(API+'/hybrid/autostart',{method:'POST'});",
+"  var d=await r.json();",
+"  if(d.ok){autoStart=d.autoStart;toast('Boot start '+(d.autoStart?'enabled':'disabled'),true);poll()}",
+"  else{toast('Error: '+(d.error||'unknown'),false)}",
+" }catch(e){toast('Request failed: '+e.message,false)}",
+"}",
 "function closeModal(){document.getElementById('overlay').classList.remove('open')}",
 "function toast(msg,ok){",
 " var el=document.createElement('div');",
@@ -385,7 +427,7 @@ const PAGE = [
 " document.body.appendChild(el);",
 " setTimeout(function(){el.remove()},4000)",
 "}",
-"poll();",
+"checkAutoStart();poll();",
 "</script>",
 "</body>",
 "</html>"
