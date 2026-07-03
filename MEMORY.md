@@ -1003,6 +1003,57 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 
 ---
 
+## Recorder Implementation History (2026-07-01 to 2026-07-03)
+
+**Status: Hidden for now. Partially complete — backend APIs ready, frontend UI built and then hidden.**
+
+### What was built:
+
+**Backend (`recorder` output type):**
+- `builtin.recorder` block in flow-generator — wired to PGM encoder output (video) + audio mixer main_out (audio). Supports per-source recording via `videoSource` field.
+- Output type fields: `outputDir`, `container` (mp4/mkv/mpegts), `audioSource`, `videoSource`
+- WS messages: `RECORDER_TOGGLE` (logical active/inactive per-recorder), `RECORDER_SPLIT` (triggers `split-now` on splitmuxsink)
+- `POST /api/v1/recorder/dirs` — filesystem directory browsing for output directory picker
+- Strom media volume mounted in backend container at `/data/`
+
+**Frontend (OutputsPanel):**
+- Recorder option in OutputsPanel with: container format picker, directory picker (filesystem browse + custom path), video source (production selector → cascading source dropdown with PGM/Clean PGM/individual sources), audio source
+- Browse button with recursive folder navigation starting from `/data/media`
+- Edit modal extended with recorder-specific fields
+- Host `~/media/rec/` mounted at `/data/media/rec` for recorder output accessible outside Docker
+
+**Frontend (ControllerPage — production view, now hidden):**
+- RecorderIcon (headphones SVG) in top bar — conditional on recorder outputs existing
+- Floating recorder bar in lower-right corner per production
+- Per-recorder columns: name, format, status dot, SPLIT button
+- REC/STOP buttons (logical state tracking — REC arms recorder, STOP disarms)
+- Master REC ALL / STOP ALL button (activate/deactivate production)
+
+### What didn't work / why it was hidden:
+
+1. **Valve approach for per-recorder start/stop** — GStreamer `valve` element `drop` property changes at runtime destabilized the pipeline. After opening then closing a valve, WHEP video preview broke (pipeline corruption from live property updates).
+
+2. **splitmuxsink location toggle** — Cannot change `location` property on splitmuxsink in PLAYING state (returns 400: "cannot be changed in Paused state"). `/dev/null` redirect impossible at runtime.
+
+3. **Logical-only state** — REVERTED TO THIS. Recorders always write files while flow runs (splitmuxsink creates empty containers at flow start). REC/STOP track logical state in backend registry. SPLIT only works when REC is active. No GStreamer manipulation.
+
+4. **0-byte files** — splitmuxsink creates empty container files at flow start regardless of data. With valves closed or no source signal, files stay empty. With working PGM video and no valves, files should fill with data. SRT/NDI/test pattern sources all work — the architecture supports any source type.
+
+5. **WHEP instability** — GStreamer property updates on live pads (valves) caused pipeline instability. Removing valves fixed this.
+
+### How it was hidden (2026-07-03):
+
+**Frontend changes to revert:**
+1. `OutputsPanel.tsx`: Removed `'recorder'` from `creatableTypes` state and `useEffect` callback. Kept in `OUTPUT_TYPE_LABELS` only.
+2. `ControllerPage/index.tsx`: Removed `recorder` from `Panels` type, removed `RecorderIcon` component, removed `hasRecorders`/`recorderActive` state, removed recorder from `PANEL_ICONS`, removed recorder icon color logic, removed entire floating recorder bar JSX, removed `updateProductionStatus` usage.
+3. `useControllerWs.ts`: Kept `RECORDER_SPLIT` and `RECORDER_TOGGLE` types (no harm).
+
+**Backend kept intact** — `'recorder'` in OutputType, flow-generator code, controller WS handlers, directory listing endpoint, recorder API methods in strom.ts. All ready to re-enable.
+
+**To re-enable:** Put `'recorder'` back in `creatableTypes`, recreate the `RecorderIcon` component, add back to `PANEL_ICONS`, restore the floating bar. Backend needs no changes.
+
+---
+
 ## Documentation To-Do
 
 > Installation guides and small feature enhancements to write when ready.
