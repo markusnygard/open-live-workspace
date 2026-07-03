@@ -1003,6 +1003,48 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 
 ---
 
+## Media Player Implementation History (2026-07-03, WIP — local only, not pushed)
+
+**Status: In progress. File browser + playlist selection functional. Transport buttons need WS wiring.**
+
+### Built today:
+
+**Backend:**
+- `'mediaplayer'` in `StreamType`, routes/sources.ts zod schemas
+- Flow-generator creates `builtin.media_player` block (video_out→offset→mixer, audio_out→mixer)
+- WS: `MEDIAPLAYER_CONTROL`, `MEDIAPLAYER_SEEK`, `MEDIAPLAYER_GOTO` — handled via Strom player API
+- `playlist` field on `SourceDoc`, auto-set on blocks after flow activation via `strom.player.setPlaylist()`
+- `GET /api/v1/recorder/dirs?files=1` — lists directories + media files
+- Mount: `~/media/` → `/data/media/` in Strom + backend containers
+
+**Frontend (SourcesPanel):** mediaplayer source type with folder path address, always available
+
+**Frontend (ControllerPage):**
+- PLAY badge (green circle+triangle) in top bar — shown when production has media player sources
+- Docked bottom-row panel with SectionLabel header (icon, name, tooltip, close)
+- `MediaPlayerCard.tsx` (extracted component): transport buttons (▶⏸⏹⏭), 📁 file browser with directory nav + file selection, playlist display, "Add N clips" saves to source doc
+- `useMemo` for mediaPlayers array prevents re-renders
+- Panel defaults to closed (`loadPanels: false`)
+
+### Design decisions:
+- Docked panel pattern (not floating) — avoids z-index/popup issues
+- SectionLabel header matches Audio/Controller/PiP convention
+- File browser inline in panel content — no popup positioning bugs
+- Playlist saved per-source, auto-loaded into Strom on activation
+
+### Still needed:
+- Wire transport buttons when production active + WS connected
+- Position/timecode display, loop toggle, mark in/out
+- Multiple players stacked, reorderable playlist
+- Pop-out to separate window (`/pane/mediaplayer`)
+
+### Files changed (local only, NOT pushed):
+- backend: types.ts, sources.ts, outputs.ts, productions.ts, flow-generator.ts, controller.ts
+- frontend: api.ts, SourcesPanel.tsx, ControllerPage/index.tsx, MediaPlayerCard.tsx, useControllerWs.ts
+- compose: open_live_local/docker-compose.yml, open_live_hybrid/docker-compose.yml
+
+---
+
 ## Recorder Implementation History (2026-07-01 to 2026-07-03)
 
 **Status: Hidden for now. Partially complete — backend APIs ready, frontend UI built and then hidden.**
