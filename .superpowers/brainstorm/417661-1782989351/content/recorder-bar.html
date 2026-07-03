@@ -1,0 +1,113 @@
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: #0b0f14; min-height: 100vh; color: #c9d1d9;">
+  <h2 style="font-size: 18px; font-weight: 600; margin-bottom: 20px; color: #fff;">Recorder UI — Floating Bar (Lower Right)</h2>
+  <p style="font-size: 13px; color: #6e7681; margin-bottom: 24px;">When the production has recorder outputs assigned, an orange Recorder icon appears in the top bar. Clicking it toggles this floating bar in the lower right corner. Each recorder shows its name, source, format, status, and controls. Duration counter only appears when actively recording.</p>
+
+  <!-- Main production view background -->
+  <div style="position: relative; background: #141a21; border: 1px solid #222a33; border-radius: 8px; height: 500px; overflow: hidden;">
+    <!-- Simulated production content -->
+    <div style="padding: 16px; height: 100%; display: flex; flex-direction: column;">
+      <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+        <button style="padding: 4px 10px; border-radius: 4px; border: 1px solid #222a33; background: #141a21; color: #6e7681; font-size: 11px;">Multiview</button>
+        <button style="padding: 4px 10px; border-radius: 4px; border: 1px solid #222a33; background: #141a21; color: #6e7681; font-size: 11px;">PGM</button>
+        <button style="padding: 4px 10px; border-radius: 4px; border: 1px solid #222a33; background: #141a21; color: #6e7681; font-size: 11px;">Controller</button>
+        <button style="padding: 4px 10px; border-radius: 4px; border: 1px solid #222a33; background: #141a21; color: #6e7681; font-size: 11px;">Audio</button>
+        <button style="padding: 4px 10px; border-radius: 4px; border: 1px solid #ff7b00; background: #141a21; color: #ff7b00; font-size: 11px; font-weight: 600;">● REC</button>
+      </div>
+      <div style="flex: 1; background: #1a1f27; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: #6e7681; font-size: 13px;">Production preview area</div>
+    </div>
+
+    <!-- ===== FLOATING RECORDER BAR ===== -->
+    <div style="position: absolute; bottom: 16px; right: 16px; background: #141a21; border: 1px solid #ff7b00; border-radius: 8px; padding: 10px 14px; display: flex; gap: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.5);">
+      
+      <div style="display: flex; align-items: center; gap: 2px; padding-right: 12px; border-right: 1px solid #222a33;">
+        <span style="font-size: 10px; color: #6e7681; letter-spacing: 0.5px; writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); height: 100%;">RECORDERS</span>
+      </div>
+
+      <!-- Recorder 1: PGM -->
+      <div style="display: flex; flex-direction: column; gap: 4px; min-width: 160px;">
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: #ff7b00; flex-shrink: 0;"></span>
+          <span style="font-size: 12px; font-weight: 600; color: #fff;">PGM</span>
+          <span style="font-size: 10px; color: #6e7681;">MP4</span>
+        </div>
+        <div style="font-size: 10px; color: #6e7681;">rec/ · 17.5GB free</div>
+        <div style="display: flex; gap: 6px; align-items: center; margin-top: 2px;">
+          <span style="font-size: 13px; font-family: monospace; color: #00e676;">00:02:34</span>
+          <span style="font-size: 9px; color: #6e7681;">PGM_20260702_1124.mp4</span>
+        </div>
+        <div style="display: flex; gap: 4px; margin-top: 2px;">
+          <button style="padding: 3px 8px; border-radius: 3px; border: 1px solid #00e676; background: transparent; color: #00e676; font-size: 10px; font-weight: 600; cursor: pointer;">SPLIT</button>
+          <button style="padding: 3px 8px; border-radius: 3px; border: 1px solid #ff5252; background: transparent; color: #ff5252; font-size: 10px; font-weight: 600; cursor: pointer;">STOP</button>
+        </div>
+      </div>
+
+      <!-- Divider -->
+      <div style="width: 1px; background: #222a33;"></div>
+
+      <!-- Recorder 2: Source -->
+      <div style="display: flex; flex-direction: column; gap: 4px; min-width: 160px;">
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: #6e7681; flex-shrink: 0;"></span>
+          <span style="font-size: 12px; font-weight: 600; color: #fff;">vMix NDI1</span>
+          <span style="font-size: 10px; color: #6e7681;">MP4</span>
+        </div>
+        <div style="font-size: 10px; color: #6e7681;">rec/ · 17.5GB free</div>
+        <div style="display: flex; gap: 6px; align-items: center; margin-top: 2px;">
+          <span style="font-size: 13px; color: #6e7681;">—</span>
+          <span style="font-size: 9px; color: #6e7681;">not recording</span>
+        </div>
+        <div style="display: flex; gap: 4px; margin-top: 2px;">
+          <button style="padding: 3px 8px; border-radius: 3px; border: 1px solid #ff7b00; background: transparent; color: #ff7b00; font-size: 10px; font-weight: 600; cursor: pointer;">REC</button>
+        </div>
+      </div>
+
+      <!-- Divider -->
+      <div style="width: 1px; background: #222a33;"></div>
+
+      <!-- Recorder 3: Clean PGM -->
+      <div style="display: flex; flex-direction: column; gap: 4px; min-width: 160px;">
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: #6e7681; flex-shrink: 0;"></span>
+          <span style="font-size: 12px; font-weight: 600; color: #fff;">Clean PGM</span>
+          <span style="font-size: 10px; color: #6e7681;">MKV</span>
+        </div>
+        <div style="font-size: 10px; color: #6e7681;">rec/ · 17.5GB free</div>
+        <div style="display: flex; gap: 6px; align-items: center; margin-top: 2px;">
+          <span style="font-size: 13px; color: #6e7681;">—</span>
+          <span style="font-size: 9px; color: #6e7681;">not recording</span>
+        </div>
+        <div style="display: flex; gap: 4px; margin-top: 2px;">
+          <button style="padding: 3px 8px; border-radius: 3px; border: 1px solid #ff7b00; background: transparent; color: #ff7b00; font-size: 10px; font-weight: 600; cursor: pointer;">REC</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Design notes -->
+  <div style="margin-top: 24px; padding: 16px; background: #141a21; border: 1px solid #222a33; border-radius: 8px;">
+    <h3 style="font-size: 14px; font-weight: 600; color: #ff7b00; margin-bottom: 12px;">Design Notes</h3>
+    <div style="display: flex; gap: 32px; font-size: 12px; color: #6e7681;">
+      <div>
+        <div style="color: #c9d1d9; font-weight: 600; margin-bottom: 4px;">States</div>
+        <div>● <span style="color:#00e676">Green dot</span> = actively recording</div>
+        <div>● <span style="color:#6e7681">Grey dot</span> = idle / stopped</div>
+        <div>● <span style="color:#ff7b00">Orange dot</span> = paused</div>
+      </div>
+      <div>
+        <div style="color: #c9d1d9; font-weight: 600; margin-bottom: 4px;">Buttons (per recorder)</div>
+        <div style="color:#ff7b00">REC</div><div>— start recording</div>
+        <div style="color:#ff5252">STOP</div><div>— stop and finalize file</div>
+        <div style="color:#00e676">SPLIT</div><div>— close current file, start new segment</div>
+      </div>
+      <div>
+        <div style="color: #c9d1d9; font-weight: 600; margin-bottom: 4px;">Info shown</div>
+        <div>Recorder name (editable)</div>
+        <div>Container format (MP4/MKV)</div>
+        <div>Output directory</div>
+        <div>Free disk space</div>
+        <div>Duration counter (HH:MM:SS)</div>
+        <div>Current filename</div>
+      </div>
+    </div>
+  </div>
+</div>
