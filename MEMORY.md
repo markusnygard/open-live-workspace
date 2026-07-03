@@ -264,24 +264,25 @@ The platform can be fully deployed on OSC at osaas.io:
 | 2026-07-01 | **OSC hybrid deployment**: Created `openlivehybrid` (Open Live) and `hybridstudioz8` (Studio) instances on OSC at osaas.io. Backend connects to on-prem CouchDB+Strom through VPS tunnel. |
 | 2026-07-01 | **CORS fix**: OSC backend must have `CORS_ORIGIN` set to the Studio's full URL (`https://<studio-name>.eyevinn-open-live-studio.auto.prod-se.osaas.io`), not `*` and not its own URL. |
 | 2026-07-01 | Dashboard simplified: single MODE section with dynamic title (LOCAL/HYBRID/MODE STOPPED), "Start Local" (all 4) and "Start Hybrid" (CouchDB+Strom only) buttons. UI scaled up ~10%. |
-| 2026-07-03 | **Kepit UTX analysis**: Studied Kepit's browser-based MIDI/Xkeys integration via WebMIDI + WebHID. Documented architecture, message protocol, in-flight tracking pattern. Recommendation: replace planned `midi-bridge.js` Node.js process with browser WebMIDI directly in Studio. Added ## Research section above Future Features. |
+| 2026-07-03 | **Other software hardware analysis**: Studied other software's browser-based MIDI/Xkeys integration via WebMIDI + WebHID. Documented architecture, message protocol, in-flight tracking pattern. Recommendation: replace planned `midi-bridge.js` Node.js process with browser WebMIDI directly in Studio. Added ## Research section above Future Features. |
+| 2026-07-03 | **Other software media player analysis**: Studied other software's A/B dual player architecture — two independent WHEP-based players with individual queues, per-clip trimming, autoshow automation, and transition crossfades. Created COPY.md with full reference material. Added ## Research section, updated Media Player feature spec to recommend A/B pattern. |
 
 ---
 
-## Research: Hardware Control via Web APIs — Kepit UTX Analysis
+## Research: Hardware Control via Web APIs — Other Software Analysis
 
-> 2026-07-03: Studied how Kepit UTX (cloud-based vision mixer on AWS) integrates MIDI faders and Xkeys controllers. The pattern is directly applicable to Open Live Studio.
+> 2026-07-03: Studied how other software (cloud-based vision mixer) integrates MIDI faders and Xkeys controllers. The pattern is directly applicable to Open Live Studio.
 
-### Kepit Architecture
+### Architecture
 
-Kepit UTX is a vision mixer running on AWS. Its UI opens in a browser window (Opera/Chrome). Hardware controllers — MIDI fader banks and Xkeys panels — connect directly through the browser using standard web APIs. No native drivers, no separate bridge process.
+The software is a vision mixer running in the cloud. Its UI opens in a browser window (Opera/Chrome). Hardware controllers — MIDI fader banks and Xkeys panels — connect directly through the browser using standard web APIs. No native drivers, no separate bridge process.
 
 ```
-[USB MIDI Fader] → WebMIDI (Browser iframe) → WS {webdev} → [Python Backend (AWS)]
-[USB Xkeys]     → WebHID  (Browser iframe) → WS {webdev} → [Python Backend (AWS)]
+[USB MIDI Fader] → WebMIDI (Browser iframe) → WS → [Backend (cloud)]
+[USB Xkeys]     → WebHID  (Browser iframe) → WS → [Backend (cloud)]
 ```
 
-**Key insight:** The browser acts purely as a hardware bridge — just forwards raw bytes. All control logic (what a fader move means, how to handle feedback, what an Xkeys button press triggers) lives server-side in Python. The browser knows nothing about mixing, channels, or presets.
+**Key insight:** The browser acts purely as a hardware bridge — just forwards raw bytes. All control logic (what a fader move means, how to handle feedback, what an Xkeys button press triggers) lives server-side. The browser knows nothing about mixing, channels, or presets.
 
 ### WebMIDI API
 
@@ -325,7 +326,7 @@ Both iframes use the same message format over the existing application WebSocket
 
 **Problem:** User moves a motorized fader → JS sends position to backend → backend responds with updated position → fader motor fights user's hand (feedback loop).
 
-**Kepit solution — per-control queuing with 500ms window:**
+**The solution — per-control queuing with 500ms window:**
 
 Each MIDI controller gets a `sender_id` (first 2 bytes as hex: `cc-channel`). A `message_senders` map tracks in-flight state:
 
@@ -369,7 +370,7 @@ Open Live's current plan for fader control uses a separate Node.js process with 
 | Xkeys support | Not covered | WebHID in same iframe |
 | WS Protocol | Reuses existing `AUDIO_SET`/`AUDIO_STATE` | Same WebSocket, same message stream |
 | Hot-plug | Must restart bridge when devices change | Browser events, automatic detection |
-| Motor fader feedback | Would need to build same queuing logic | Proven in-flight tracking pattern from Kepit |
+| Motor fader feedback | Would need to build same queuing logic | Proven in-flight tracking pattern from other software |
 | Operator workflow | `node midi-bridge.js --production prod-xxx` | Open Studio, grant MIDI permission, done |
 
 ### Recommendation: Replace Node.js Bridge with Browser WebMIDI
@@ -380,7 +381,7 @@ The WebMIDI approach is strictly simpler. Open Live Studio is already a browser 
 2. **Expands hardware support** — MIDI faders + HID controllers (Xkeys) in one surface
 3. **Zero installation** — operator opens Studio, clicks "Allow MIDI", done
 4. **Reuses existing infrastructure** — same WebSocket, same `AUDIO_SET`/`AUDIO_STATE` backend
-5. **Proven pattern** — Kepit uses exactly this in production for broadcast workflows
+5. **Proven pattern** — other software uses exactly this in production for broadcast workflows
 
 **What stays the same from the existing spec:**
 - All fader presets (Behringer X-Touch, Icon, Korg, Allen & Heath, etc.) — just different transport layer
@@ -402,7 +403,7 @@ The WebMIDI approach is strictly simpler. Open Live Studio is already a browser 
 - Scans `navigator.hid.getDevices()` for Xkeys (vendorId 1523, 4057)
 - Maps incoming MIDI bytes → `AUDIO_SET` WS messages using fader config from production doc
 - Subscribes to `AUDIO_STATE` for motorized fader position feedback
-- Implements in-flight tracking (500ms per-control) from Kepit pattern
+- Implements in-flight tracking (500ms per-control) from other software pattern
 - Cleanup on component unmount / `beforeunload`
 
 **Backend:**
@@ -411,6 +412,136 @@ The WebMIDI approach is strictly simpler. Open Live Studio is already a browser 
 - `data_response` mechanism for motorized fader flow control
 
 **HID/Xkeys:** Same component handles Xkeys via WebHID. Xkeys button presses map to Studio actions (Cut, Auto, FTB, etc.) via existing WS message types. Xkeys LED feedback via `sendReport`.
+
+---
+
+## Research: Media Player Architecture — Other Software Analysis
+
+> 2026-07-03: Studied how other software implements its media player as an A/B dual-player system with independent queues, clip trimming, autoshow automation, and transition crossfades. Full reference material in [COPY.md](./COPY.md).
+
+### Architecture: Three-Iframe System
+
+The media player consists of 3 iframes communicating with a shared backend via message passing:
+
+| Iframe | Size | Stack | Role |
+|--------|------|-------|------|
+| Media Editor C | Dynamic | WHEPClient (vanilla JS) | Video preview — receives composed WHEP stream, renders in `<video>` |
+| PlayerA | 325×240 px | Vue.js 2 | Full playback controls + queue + settings |
+| PlayerB | 325×240 px | Vue.js 2 (identical code) | Independent second player |
+
+### A/B Dual Player Pattern
+
+Two fully independent players. Typical broadcast workflow:
+
+1. **PlayerA** plays a clip on air (PGM), **PlayerB** is cued and ready
+2. Operator queues next clip into PlayerB, sets marks, previews the WHEP stream
+3. CUT/MIX to PlayerB — now PlayerB is PGM, PlayerA is free for next cue
+4. Each player has its own **independent** queue, rate setting, loop mode, and audio state
+
+This is significant because Open Live Studio's current Media Player spec plans a single player with dropdown for multiple instances. A single player forces either gapless-only mode or dead air between clips. Two players give the operator full control.
+
+### WHEP Streaming (not browser playback)
+
+Clips are NOT decoded locally. The media engine server-side renders the clip and delivers it as a WebRTC WHEP stream. The `WHEPClient` class in the editor iframe handles:
+
+- **ICE negotiation:** OPTIONS → POST (offer/answer SDP exchange) → PATCH (trickle-ICE candidates)
+- **Auto-restart:** On connection loss (`disconnected` / `failed`), waits 2000ms, deletes old session, reconnects
+- **Stereo Opus:** Injects `stereo=1;sprop-stereo=1` into audio `a=fmtp:` line during SDP offer edit
+- **Audio gain:** Web Audio API `GainNode` on the audio track, settable volume 0.0–1.0
+- **Session cleanup:** DELETE request on WHEP session URL before restart or stop
+
+For Open Live Studio: the WHEPClient is not needed — Strom already delivers video through the vision mixer to WHEP outputs, and the Studio UI receives PGM/MV streams. The player UI only needs to issue control commands to Strom's `player.*()` API.
+
+### Queue System
+
+Each player maintains an independent queue. Each item:
+
+```json
+{
+  "name": "clip_name.mp4",
+  "type": "media | youtube | ring-replay",
+  "uri": "file:///path/to/clip",
+  "start_position": 0,       // trim-in (ms)
+  "end_position": 5000,      // trim-out (ms), -1 = play to end
+  "rate": 1.0,               // speed multiplier per clip
+  "seek": 0,                 // initial seek offset
+  "identifier": "abc123",    // unique ID for backend
+  "removable": true,
+  "transition-length": 500   // crossfade overlap between clips (ms)
+}
+```
+
+**Queue duration** sums all items: `(end_position - start_position) / rate - transition_length`. The display shows both total queue duration and real-time remaining (accounting for current playback rate).
+
+**Outgoing item mechanism:** When operator presses NEXT, the playing clip becomes `outgoing_item` (flagged `{outgoing: true}` in render) while the next clip becomes `current_item`. Both appear side-by-side during crossfade. The media engine handles the actual audio/video dissolve.
+
+### Control Inventory
+
+**Transport:** Play/Pause, Seek Start (jump to beginning), Next, Position scrubber slider, Rate buttons (0.5×, 1×, 2×, 4×, 8×)
+
+**Clip controls:** Loop current clip toggle, Loop entire queue toggle, Audio mute toggle, Clear player, Clear queue
+
+**Queue:** URI text input + Add button, per-item display (name, duration, remove, move up/down), queue duration counter, items count
+
+**Time display:** Current position / Duration (MM:SS or HH:MM:SS), time remaining countdown, clock time for ring-replay clips
+
+**Settings:** Autoshow toggle (auto-take to PGM), Autoshow stinger toggle, Autoplay toggle, Autoshow return source selector, Frame interpolation toggle (if supported), Clear confirmation setting
+
+### Autoshow Automation
+
+The player drives vision mixer operation. Key behaviors:
+
+| Mode | When clip starts | When clip ends |
+|------|-----------------|----------------|
+| Autoshow OFF | Operator manually cuts | Clip stops, stays on air |
+| Autoshow ON | Auto CUT/AUTO to player's mixer input | Clip stops |
+| Autoshow + Return | Auto CUT/AUTO to player | Auto CUT/AUTO back to saved source |
+| Autoshow + Stinger | Same as ON but with stinger transition | Per return setting |
+
+In Open Live Studio terms: `MIXER_CUT` / `MIXER_AUTO` WS messages triggered by player state transitions on the backend.
+
+### Message Protocol (shared pattern with hardware control — see earlier research)
+
+All communication is `gui.send_message({type, value, ...})` and `gui.on_message(callback)`.
+
+**Player → Backend sent types:** `pause_play_toggle`, `seek`, `seek_start`, `next`, `rate`, `toggle_current_item_loop`, `toggle_loop_queue`, `toggle_audio`, `clear_player`, `clear_queue`, `add_item`, `remove_item`, `move_item`, `autoplay`, `autoshow`, `autoshow_stinger`, `autoshow_return`, `clear_confirmation_setting`, `frame_interpolation_enabled`
+
+**Backend → Player received types:** `init` (full state), `state`, `current_item`, `outgoing_item`, `queue`, `position_duration` (throttled 40ms), `rate`, `autoplay`, `autoshow`, `autoshow_stinger`, `autoshow_return`, `clear_confirmation_setting`, `loop_queue`, `frame_interpolation_enabled`, `reload`
+
+**Position streaming:** Backend sends `position_duration` updates, iframe throttles render with `_.throttle(40)` (~25fps).
+
+### Other Software → Strom Mapping
+
+| Concept | Strom API | Status |
+|---------|-----------|--------|
+| Play/Pause/Stop | `player.control('play'/'pause'/'stop')` | Direct match |
+| Next/Prev | `player.control('next'/'previous')` | Direct match |
+| Seek | `player.seek(position_ns)` | Direct match |
+| Goto index | `player.goto(index)` | Direct match |
+| Playlist/queue | `POST player/playlist` with file URIs | Direct match |
+| State polling | `GET player/state` | Direct match |
+| Loop clip/queue | Strom playlist supports loop | Verify |
+| Per-clip speed | Strom player likely supports rate per item | Verify |
+| Per-clip trim marks | NOT in playlist API | Workaround: seek + position monitoring |
+| Transition crossfade | NOT in player API | Use two players + mixer dissolve |
+| Autoshow automation | NOT in player | Build on backend: state → mixer commands |
+| Frame interpolation | Strom may have property | Verify |
+| A/B dual player | Two media_player blocks per flow | Doable |
+| Ring-replay | NOT supported | Out of scope for v1 |
+
+### Recommendations for Open Live Studio Media Player
+
+1. **Upgrade to A/B dual player.** The current spec's single player + dropdown should become two independent player panels. In Strom terms: two `media_player` blocks per production, each routed to different mixer inputs for crossfade-capable transitions.
+
+2. **Add per-clip head/tail trimming.** Store `start_position`/`end_position` per queue item. Since Strom's playlist API may lack per-clip marks, implement via seek-on-load + position monitoring for auto-next.
+
+3. **Add autoshow semantics.** Player state transitions should drive vision mixer automation. The backend monitors player state and fires `MIXER_CUT`/`MIXER_AUTO` WS messages.
+
+4. **Add queue duration display.** Real-time countdown of remaining queue time (HH:MM:SS) with ending warning (last 5 seconds).
+
+5. **Throttled position streaming.** 40ms throttle pattern prevents over-rendering at full polling rate.
+
+6. **Full state init.** On player connect, backend pushes complete state (settings + queue + current item + position) — not incremental. This ensures reconnect-safe behavior.
 
 ---
 
@@ -423,9 +554,11 @@ The WebMIDI approach is strictly simpler. Open Live Studio is already a browser 
 
 ### Feature: Media Player Input
 
-**Goal:** Add `mediaplayer` as a new source/input type in Open Live Studio, using Strom's `builtin.media_player` block. Each media player instance acts as a separate video+audio input source with independent transport controls, playlist management, and clip trimming (mark in/out).
+> **2026-07-03 update:** After studying other software's A/B dual player approach (see ## Research section above and [COPY.md](./COPY.md)), the recommended design is **two independent players** instead of a single player with dropdown. See recommendations at end of this section.
 
-**Why:** Broadcast productions need clip playback — bumpers, advertisements, video wall loops, audio jingles, background music. Multiple simultaneous media players let the operator, e.g., play a bumper from one player while a video loop runs on another and background audio plays from a third — all routed as separate mixer channels.
+**Goal:** Add `mediaplayer` as a new source/input type in Open Live Studio, using Strom's `builtin.media_player` block. Two independent media player instances (A and B) form a dual-player system with individual transport controls, per-player playlists, clip trimming (mark in/out), autoshow automation, and crossfade-capable transitions between players.
+
+**Why:** Broadcast productions need clip playback — bumpers, advertisements, video wall loops, audio jingles, background music. A dual player system lets the operator cue the next clip in Player B while Player A is on air, then transition between them without dead air.
 
 **Architecture:**
 
@@ -480,6 +613,23 @@ The WebMIDI approach is strictly simpler. Open Live Studio is already a browser 
 3. `frontend/src/pages/production/` — new `MediaPlayerPanel.tsx` with transport controls, playlist editor, clip trimmer
 
 **Configuration is per-production** — playlist, marks, and loop settings live inside the production document's source assignments. To reuse a media player setup, duplicate the production (see Production Duplication feature).
+
+### A/B Dual Player Upgrade (Recommended)
+
+Based on other software research, the single-player + dropdown design should be upgraded to:
+
+1. **Two media_player blocks per production** instead of one — PlayerA and PlayerB.
+2. **Two independent player panels** in the production UI (side-by-side or tabbed).
+3. **Each player routed to separate mixer inputs** — enables crossfade transitions between players.
+4. **Independent per-player queues** — each player has its own playlist, rate, loop, and audio settings.
+5. **Autoshow settings per player** — `autoshow` (auto-take to PGM), `autoshow_stinger`, `autoshow_return`.
+6. **Per-clip head/tail trimming** — `start_position`/`end_position` per queue item. Implement via seek-on-load + position monitoring if Strom playlist API lacks per-clip marks.
+7. **Outgoing item display** — show transitioning-out clip alongside current clip during crossfade.
+8. **Queue duration counter** — real-time countdown (HH:MM:SS) with 5-second ending warning.
+9. **Throttled position updates** — 40ms throttle on `position_duration` streaming (~25fps).
+10. **Full state init on connect** — backend pushes complete player state on WS connect for reconnect safety.
+
+See [COPY.md](./COPY.md) for complete reference material including message protocol, queue data model, control inventory, layout, and WHEP client patterns.
 
 ---
 
@@ -710,7 +860,7 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 
 ### Feature: USB Fader Control (MIDI Bridge → WebMIDI)
 
-> **2026-07-03 update:** After studying Kepit UTX's WebMIDI approach (see ## Research section above), the recommended implementation is **browser-based WebMIDI** instead of a separate Node.js process. The preset mapping system and backend protocol remain identical — only the transport layer changes. The Node.js bridge is retained as a fallback for non-Chrome browsers.
+> **2026-07-03 update:** After studying other software's WebMIDI approach (see ## Research section above), the recommended implementation is **browser-based WebMIDI** instead of a separate Node.js process. The preset mapping system and backend protocol remain identical — only the transport layer changes. The Node.js bridge is retained as a fallback for non-Chrome browsers.
 
 **Goal:** Connect any USB MIDI fader controller (motorized fader banks, compact controllers, or full audio consoles in MIDI mode) to Open Live for hands-on audio mixing. A lightweight bridge translates MIDI events to WebSocket `AUDIO_SET` messages, reusing the existing controller infrastructure.
 
@@ -730,7 +880,7 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
                 ↑ feedback (motor faders, LED mutes) ← WS {AUDIO_STATE} ←
 ```
 
-- **Recommended:** WebMIDI in browser (see ## Research: Kepit UTX Analysis). Works in Chrome/Edge/Opera. Zero install, automatic hot-plug, proven in-flight tracking for motorized faders.
+- **Recommended:** WebMIDI in browser (see ## Research: other software). Works in Chrome/Edge/Opera. Zero install, automatic hot-plug, proven in-flight tracking for motorized faders.
 - **Fallback:** Node.js bridge using `midi` npm package (or `easymidi`). Runs on the machine where the fader is plugged in. Works in any browser, requires `npm install`. Same protocol.
 - On startup: reads production ID → fetches production doc → loads fader config
 - Translates MIDI CC fader moves → `AUDIO_SET {elementId, property:'volume', value:0.0-1.0}`
@@ -793,7 +943,7 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 2. API: `navigator.requestMIDIAccess({sysex: true})` (no npm packages)
 3. Maps MIDI events → WS `AUDIO_SET` using fader config from production document
 4. Subscribes to WS `AUDIO_STATE` for motorized fader feedback with in-flight tracking
-5. Implements 500ms per-control queuing pattern (from Kepit research) to prevent feedback loops
+5. Implements 500ms per-control queuing pattern (from other software research) to prevent feedback loops
 6. Hidden/mounted component — no user-visible UI beyond permission prompt
 
 **Bridge implementation (fallback — Node.js for non-Chrome browsers):**
@@ -847,7 +997,7 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 - **Per-channel dynamics use Strom block properties API** — all dynamics properties are `live: true` (instant), no flow restart needed. Property names follow pattern `chN_<section>_<parameter>`.
 - **Audio router requires flow restart** — Strom's `builtin.audiorouter` has `live: false`. Matrix edits are staged, then applied via deactivate → rebuild → activate (~5s). Default is 1:1 passthrough (no router in flow) until operator configures routing.
 - **AES67 is the audio-only network format** — industry standard, multicast, PTP-synced, up to 8 channels/stream. Requires multicast network + PTP clock (OS-level, not enforced by software). SRT for remote/WAN audio can be added later.
-- **Fader bridge: WebMIDI in browser (primary), Node.js fallback** — recommended approach embeds WebMIDI in Studio frontend (zero install, automatic hot-plug, proven in-flight tracking from Kepit). Node.js `midi-bridge.js` retained as fallback for non-Chrome browsers. Both reuse existing WS `AUDIO_SET`/`AUDIO_STATE` protocol. No new backend endpoints needed for the primary approach.
+- **Fader bridge: WebMIDI in browser (primary), Node.js fallback** — recommended approach embeds WebMIDI in Studio frontend (zero install, automatic hot-plug, proven in-flight tracking from other software). Node.js `midi-bridge.js` retained as fallback for non-Chrome browsers. Both reuse existing WS `AUDIO_SET`/`AUDIO_STATE` protocol. No new backend endpoints needed for the primary approach.
 - **MIDI is the universal protocol** — 95% of controllers speak MIDI CC/Note/PitchBend. Additional protocol handlers (OSC, TCP RAW) added as needed.
 - **Per-production fader config survives room changes** — same production, different room, same fader model: plug in, start bridge, works. Channel mapping stored in production document.
 
