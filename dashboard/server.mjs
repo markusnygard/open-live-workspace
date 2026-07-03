@@ -185,6 +185,40 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (path === "/api/dashboard/autostart") {
+    const autostartDir = join(process.env.HOME || "/root", ".config/autostart");
+    const autostartFile = join(autostartDir, "open-live-dashboard.desktop");
+    const desktopFile = join(ROOT, "dashboard", "open-live-dashboard.desktop");
+    if (req.method === "GET") {
+      try {
+        const fs = await import("node:fs");
+        return sendJson(res, 200, { autoStart: fs.existsSync(autostartFile) });
+      } catch {
+        return sendJson(res, 200, { autoStart: false });
+      }
+    }
+    if (req.method === "POST") {
+      try {
+        const fs = await import("node:fs");
+        if (fs.existsSync(autostartFile)) {
+          fs.unlinkSync(autostartFile);
+          return sendJson(res, 200, { autoStart: false });
+        } else {
+          fs.mkdirSync(autostartDir, { recursive: true });
+          // Copy desktop file to autostart (or create symlink)
+          try { fs.copyFileSync(desktopFile, autostartFile); } catch {
+            // If copy fails, create a minimal entry
+            fs.writeFileSync(autostartFile, `[Desktop Entry]\nType=Application\nName=Open Live Dashboard\nExec=node ${join(ROOT, "dashboard", "server.mjs")}\nTerminal=false\n`);
+          }
+          return sendJson(res, 200, { autoStart: true });
+        }
+      } catch (e) {
+        return sendJson(res, 500, { ok: false, error: e.message });
+      }
+    }
+    return;
+  }
+
   if (path === "/api/hybrid/autostart") {
     if (req.method === "GET") {
       try {
@@ -305,7 +339,7 @@ const PAGE = [
 "</style>",
 "</head>",
 "<body>",
-"<header><h1>Open Live Dashboard</h1><div class=\"meta\"><span id=\"clock\">--</span><span id=\"poll-count\">Poll #0</span></div></header>",
+"<header><h1>Open Live Dashboard</h1><div class=\"meta\"><span id=\"clock\">--</span><span id=\"poll-count\">Poll #0</span><button id=\"dash-autostart-btn\" class=\"btn\" style=\"font-size:11px;padding:4px 10px\" onclick=\"toggleDashAutoStart()\">Boot Start: --</button></div></header>",
 "<main id=\"app\"><p style=\"color:var(--muted);text-align:center;padding:40px;\">Loading...</p></main>",
 "<div class=\"overlay\" id=\"overlay\" onclick=\"if(event.target===this)closeModal()\"><div class=\"modal\" id=\"modal\"></div></div>",
 "<script>",
@@ -419,6 +453,24 @@ const PAGE = [
 "  else{toast('Error: '+(d.error||'unknown'),false)}",
 " }catch(e){toast('Request failed: '+e.message,false)}",
 "}",
+"async function toggleDashAutoStart(){",
+" try{",
+"  var r=await fetch(API+'/dashboard/autostart',{method:'POST'});",
+"  var d=await r.json();",
+"  updateDashAutoBtn(d.autoStart)",
+" }catch(e){console.error(e)}",
+"}",
+"function updateDashAutoBtn(on){",
+" var btn=document.getElementById('dash-autostart-btn');",
+" if(!btn)return;",
+" btn.textContent='Boot Start: '+(on?'ON':'OFF');",
+" btn.className='btn '+(on?'autostart-on':'autostart-off');",
+" btn.style.cssText='font-size:11px;padding:4px 10px'",
+"}",
+"async function checkDashAutoStart(){",
+" try{var r=await fetch(API+'/dashboard/autostart');var d=await r.json();updateDashAutoBtn(d.autoStart)}",
+" catch(e){console.error(e)}",
+"}",
 "function closeModal(){document.getElementById('overlay').classList.remove('open')}",
 "function toast(msg,ok){",
 " var el=document.createElement('div');",
@@ -427,7 +479,7 @@ const PAGE = [
 " document.body.appendChild(el);",
 " setTimeout(function(){el.remove()},4000)",
 "}",
-"checkAutoStart();poll();",
+"checkDashAutoStart();checkAutoStart();poll();",
 "</script>",
 "</body>",
 "</html>"
