@@ -264,6 +264,153 @@ The platform can be fully deployed on OSC at osaas.io:
 | 2026-07-01 | **OSC hybrid deployment**: Created `openlivehybrid` (Open Live) and `hybridstudioz8` (Studio) instances on OSC at osaas.io. Backend connects to on-prem CouchDB+Strom through VPS tunnel. |
 | 2026-07-01 | **CORS fix**: OSC backend must have `CORS_ORIGIN` set to the Studio's full URL (`https://<studio-name>.eyevinn-open-live-studio.auto.prod-se.osaas.io`), not `*` and not its own URL. |
 | 2026-07-01 | Dashboard simplified: single MODE section with dynamic title (LOCAL/HYBRID/MODE STOPPED), "Start Local" (all 4) and "Start Hybrid" (CouchDB+Strom only) buttons. UI scaled up ~10%. |
+| 2026-07-03 | **Kepit UTX analysis**: Studied Kepit's browser-based MIDI/Xkeys integration via WebMIDI + WebHID. Documented architecture, message protocol, in-flight tracking pattern. Recommendation: replace planned `midi-bridge.js` Node.js process with browser WebMIDI directly in Studio. Added ## Research section above Future Features. |
+
+---
+
+## Research: Hardware Control via Web APIs — Kepit UTX Analysis
+
+> 2026-07-03: Studied how Kepit UTX (cloud-based vision mixer on AWS) integrates MIDI faders and Xkeys controllers. The pattern is directly applicable to Open Live Studio.
+
+### Kepit Architecture
+
+Kepit UTX is a vision mixer running on AWS. Its UI opens in a browser window (Opera/Chrome). Hardware controllers — MIDI fader banks and Xkeys panels — connect directly through the browser using standard web APIs. No native drivers, no separate bridge process.
+
+```
+[USB MIDI Fader] → WebMIDI (Browser iframe) → WS {webdev} → [Python Backend (AWS)]
+[USB Xkeys]     → WebHID  (Browser iframe) → WS {webdev} → [Python Backend (AWS)]
+```
+
+**Key insight:** The browser acts purely as a hardware bridge — just forwards raw bytes. All control logic (what a fader move means, how to handle feedback, what an Xkeys button press triggers) lives server-side in Python. The browser knows nothing about mixing, channels, or presets.
+
+### WebMIDI API
+
+- W3C standard: `navigator.requestMIDIAccess({sysex: true})`
+- Browser support: Chrome, Edge, Opera (not Firefox/Safari)
+- Returns `MIDIAccess` object with `.inputs` (MIDIInputMap) and `.outputs` (MIDIOutputMap)
+- Input: `input.onmidimessage = (event) => { event.data }` — raw Uint8Array bytes
+- Output: `output.send([0x90, 0x45, 0x7f])` — send bytes to hardware
+- SysEx: supported for advanced device configuration (e.g., scribble strip text)
+- Hot-plug: `midi.onstatechange` event for connect/disconnect
+- **This is NOT RTP-MIDI (AppleMIDI).** RTP-MIDI transports MIDI over UDP network. WebMIDI gives the browser local access to USB/Bluetooth MIDI devices.
+
+### WebHID API (Xkeys)
+
+- W3C standard: `navigator.hid.getDevices()` / `navigator.hid.requestDevice()`
+- Browser support: Chrome, Edge, Opera
+- Xkeys vendorId: `1523` (PI Engineering). Other controller: `4057`.
+- Filter by usage page (usage = 1 = Generic Desktop Control)
+- Three report directions:
+  - `inputreport` event — device → browser (button press/encoder turn)
+  - `device.sendReport(reportId, data)` — browser → device (LED on/off, backlight)
+  - `device.sendFeatureReport(reportId, data)` — browser → device (config/init)
+- Xkeys data padded to 36 bytes
+- On init: reset controllers, close all, re-scan fresh
+
+### Message Protocol (Shared by MIDI and HID)
+
+Both iframes use the same message format over the existing application WebSocket:
+
+| Action | Direction | Purpose |
+|--------|-----------|---------|
+| `{type:"webdev", action:"add", path, name}` | JS → Backend | Register newly connected device |
+| `{type:"webdev", action:"del", path}` | JS → Backend | Remove disconnected device |
+| `{type:"webdev", action:"data", path, data, sender_id}` | JS → Backend | Raw bytes from hardware input |
+| `{type:"webdev", action:"data_response", path, sender_id}` | Backend → JS | Acknowledge processed message |
+| `{type:"webdev", action:"data", path, data}` | Backend → JS | Send control data to device (motor fader position, LED state) |
+| `{type:"webdev", action:"rawdata", path, data}` | Backend → JS | HID raw report (Xkeys) |
+| `{type:"webdev", action:"featuredata", path, data}` | Backend → JS | HID feature report (Xkeys config) |
+
+### In-Flight Message Tracking (Critical for Motorized Faders)
+
+**Problem:** User moves a motorized fader → JS sends position to backend → backend responds with updated position → fader motor fights user's hand (feedback loop).
+
+**Kepit solution — per-control queuing with 500ms window:**
+
+Each MIDI controller gets a `sender_id` (first 2 bytes as hex: `cc-channel`). A `message_senders` map tracks in-flight state:
+
+```
+1. User moves fader → JS forwards bytes, marks sender as "in-flight" (start timestamp)
+2. If new data arrives for same sender before response (< 500ms) → queue callback
+3. Backend processes → sends "data_response" → JS unblocks queue
+4. Queued callback fires → sends next messages → marks in-flight again
+5. If no new data and no response → clear sender (avoids stale queue buildup)
+```
+
+This prevents position feedback oscillation without adding perceptible latency. The code comment (in Finnish) suggests they plan to move this logic from Python to JS for lower latency.
+
+### Device Lifecycle Management
+
+- UUID-based path per device (not MIDI id — handles multiple identical controllers)
+- Hot-plug: automatic via `onstatechange` (MIDI) and `connect`/`disconnect` (HID)
+- `beforeunload` cleanup: remove all devices and close connections on tab close
+- Settings popup: auto-opens for unconfigured devices (uid < 1)
+- Device config stored server-side, survives browser restarts
+
+### Implementation: Thin JS Bridge Pattern
+
+Both iframes are deliberately tiny (280×28 and 240×28 pixels) — they exist only to hold the hardware API session. The Vue.js app has:
+
+- **No UI** aside from status dots
+- **No knowledge** of what MIDI CC numbers or Xkeys buttons mean
+- **No configuration** stored client-side
+- **Just:** open hardware → forward bytes → receive commands → forward back
+
+### Comparison: WebMIDI vs. Planned Node.js Bridge
+
+Open Live's current plan for fader control uses a separate Node.js process with the `midi` npm package.
+
+| | Planned (Node.js Bridge) | WebMIDI Approach |
+|---|---|---|
+| Process | Separate `node midi-bridge.js` | Inside browser (no extra process) |
+| Dependencies | `midi` npm (native C bindings) | Browser built-in API |
+| Installation | `npm install`, platform-specific compilation | None — browser handles it |
+| Cross-platform | C binding issues (Windows/macOS/Linux) | All Chrome/Edge platforms |
+| Xkeys support | Not covered | WebHID in same iframe |
+| WS Protocol | Reuses existing `AUDIO_SET`/`AUDIO_STATE` | Same WebSocket, same message stream |
+| Hot-plug | Must restart bridge when devices change | Browser events, automatic detection |
+| Motor fader feedback | Would need to build same queuing logic | Proven in-flight tracking pattern from Kepit |
+| Operator workflow | `node midi-bridge.js --production prod-xxx` | Open Studio, grant MIDI permission, done |
+
+### Recommendation: Replace Node.js Bridge with Browser WebMIDI
+
+The WebMIDI approach is strictly simpler. Open Live Studio is already a browser app (React + Vite). Adding a `<MidiBridge>` component that runs `navigator.requestMIDIAccess()` and forwards bytes over the existing WS connection:
+
+1. **Eliminates the external process entirely** — no CLI, no npm, no C bindings
+2. **Expands hardware support** — MIDI faders + HID controllers (Xkeys) in one surface
+3. **Zero installation** — operator opens Studio, clicks "Allow MIDI", done
+4. **Reuses existing infrastructure** — same WebSocket, same `AUDIO_SET`/`AUDIO_STATE` backend
+5. **Proven pattern** — Kepit uses exactly this in production for broadcast workflows
+
+**What stays the same from the existing spec:**
+- All fader presets (Behringer X-Touch, Icon, Korg, Allen & Heath, etc.) — just different transport layer
+- Per-production fader config in production document
+- Mapping MIDI CC → `AUDIO_SET {elementId, property, value}`
+- Motorized fader feedback via `AUDIO_STATE` subscription
+
+**What changes:**
+- `midi-bridge.js` (Node.js process) replaced by `<MidiBridge>` React component
+- `midi` npm package replaced by `navigator.requestMIDIAccess()`
+- MIDI port selection moves from CLI args to browser permission dialog
+- Add in-flight message tracking for motorized faders
+
+### Implementation Plan
+
+**Frontend (`frontend/src/components/MidiBridge.tsx`):**
+- Hidden component, runs on Studio mount
+- Requests `navigator.requestMIDIAccess({sysex: true})` — browser shows permission dialog
+- Scans `navigator.hid.getDevices()` for Xkeys (vendorId 1523, 4057)
+- Maps incoming MIDI bytes → `AUDIO_SET` WS messages using fader config from production doc
+- Subscribes to `AUDIO_STATE` for motorized fader position feedback
+- Implements in-flight tracking (500ms per-control) from Kepit pattern
+- Cleanup on component unmount / `beforeunload`
+
+**Backend:**
+- No new endpoints needed — existing WS controller message types suffice
+- Optional: new `webdev` message type for raw MIDI passthrough (for unmapped/advanced controllers)
+- `data_response` mechanism for motorized fader flow control
+
+**HID/Xkeys:** Same component handles Xkeys via WebHID. Xkeys button presses map to Studio actions (Cut, Auto, FTB, etc.) via existing WS message types. Xkeys LED feedback via `sendReport`.
 
 ---
 
@@ -561,21 +708,30 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 
 ---
 
-### Feature: USB Fader Control (MIDI Bridge)
+### Feature: USB Fader Control (MIDI Bridge → WebMIDI)
 
-**Goal:** Connect any USB MIDI fader controller (motorized fader banks, compact controllers, or full audio consoles in MIDI mode) to Open Live for hands-on audio mixing. A lightweight Node.js bridge translates MIDI events to WebSocket `AUDIO_SET` messages, reusing the existing controller infrastructure.
+> **2026-07-03 update:** After studying Kepit UTX's WebMIDI approach (see ## Research section above), the recommended implementation is **browser-based WebMIDI** instead of a separate Node.js process. The preset mapping system and backend protocol remain identical — only the transport layer changes. The Node.js bridge is retained as a fallback for non-Chrome browsers.
+
+**Goal:** Connect any USB MIDI fader controller (motorized fader banks, compact controllers, or full audio consoles in MIDI mode) to Open Live for hands-on audio mixing. A lightweight bridge translates MIDI events to WebSocket `AUDIO_SET` messages, reusing the existing controller infrastructure.
 
 **Why:** Keyboard/mouse mixing is slow. Physical faders give the operator fast access to volume, mute, and channel selection. The bridge is a stateless translator — it doesn't duplicate the mixer, it just pipes MIDI events to where they're already handled.
 
-**Architecture:**
+**Architecture (recommended — browser WebMIDI):**
+
+```
+[USB Fader] → WebMIDI (Browser/Studio UI) → WS {AUDIO_SET} → [Open Live Backend] → Strom mixer
+                   ↑ feedback (motor faders, LED mutes) ← WS {AUDIO_STATE} ←
+```
+
+**Architecture (fallback — Node.js bridge, for non-Chrome browsers):**
 
 ```
 [USB Fader] → USB MIDI → [Bridge (Node.js)] → WS {AUDIO_SET} → [Open Live Backend] → Strom mixer
                 ↑ feedback (motor faders, LED mutes) ← WS {AUDIO_STATE} ←
 ```
 
-- Bridge is a ~200-line Node.js script using the `midi` npm package (or `easymidi`)
-- Runs on the machine where the fader is plugged in (same machine as Companion, typically)
+- **Recommended:** WebMIDI in browser (see ## Research: Kepit UTX Analysis). Works in Chrome/Edge/Opera. Zero install, automatic hot-plug, proven in-flight tracking for motorized faders.
+- **Fallback:** Node.js bridge using `midi` npm package (or `easymidi`). Runs on the machine where the fader is plugged in. Works in any browser, requires `npm install`. Same protocol.
 - On startup: reads production ID → fetches production doc → loads fader config
 - Translates MIDI CC fader moves → `AUDIO_SET {elementId, property:'volume', value:0.0-1.0}`
 - Translates MIDI note/CC mute presses → `AUDIO_SET {elementId, property:'mute', value:true/false}`
@@ -632,7 +788,15 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 
 **Backend changes:** None. Uses existing WS `AUDIO_SET` / `AUDIO_STATE` messages. The bridge is a separate tool, not part of Open Live's codebase.
 
-**Bridge implementation:**
+**Bridge implementation (recommended — WebMIDI in Studio):**
+1. New React component: `frontend/src/components/MidiBridge.tsx`
+2. API: `navigator.requestMIDIAccess({sysex: true})` (no npm packages)
+3. Maps MIDI events → WS `AUDIO_SET` using fader config from production document
+4. Subscribes to WS `AUDIO_STATE` for motorized fader feedback with in-flight tracking
+5. Implements 500ms per-control queuing pattern (from Kepit research) to prevent feedback loops
+6. Hidden/mounted component — no user-visible UI beyond permission prompt
+
+**Bridge implementation (fallback — Node.js for non-Chrome browsers):**
 1. New repo or directory: `open-live-tools/midi-bridge/`
 2. Package: `midi` or `easymidi` (npm), `ws` (npm)
 3. CLI flags: `--open-live-url`, `--production`, `--model` (override preset), `--list-midi` (list available MIDI ports)
@@ -683,7 +847,7 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 - **Per-channel dynamics use Strom block properties API** — all dynamics properties are `live: true` (instant), no flow restart needed. Property names follow pattern `chN_<section>_<parameter>`.
 - **Audio router requires flow restart** — Strom's `builtin.audiorouter` has `live: false`. Matrix edits are staged, then applied via deactivate → rebuild → activate (~5s). Default is 1:1 passthrough (no router in flow) until operator configures routing.
 - **AES67 is the audio-only network format** — industry standard, multicast, PTP-synced, up to 8 channels/stream. Requires multicast network + PTP clock (OS-level, not enforced by software). SRT for remote/WAN audio can be added later.
-- **Fader bridge is a separate tool** — not part of Open Live backend or frontend. Reuses existing WS `AUDIO_SET`/`AUDIO_STATE` protocol. No new backend endpoints needed.
+- **Fader bridge: WebMIDI in browser (primary), Node.js fallback** — recommended approach embeds WebMIDI in Studio frontend (zero install, automatic hot-plug, proven in-flight tracking from Kepit). Node.js `midi-bridge.js` retained as fallback for non-Chrome browsers. Both reuse existing WS `AUDIO_SET`/`AUDIO_STATE` protocol. No new backend endpoints needed for the primary approach.
 - **MIDI is the universal protocol** — 95% of controllers speak MIDI CC/Note/PitchBend. Additional protocol handlers (OSC, TCP RAW) added as needed.
 - **Per-production fader config survives room changes** — same production, different room, same fader model: plug in, start bridge, works. Channel mapping stored in production document.
 
