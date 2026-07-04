@@ -113,7 +113,7 @@ function runCompose(mode, action) {
   const dir = join(ROOT, "open_live_" + mode);
   const file = join(dir, "docker-compose.yml");
   let args;
-  if (action === "down") args = "down --volumes";
+  if (action === "down") args = "down";
   else if (action === "ps-json") args = "ps --format json";
   else args = action + " -d";
   const cmd = "docker compose -f \"" + file + "\" " + args;
