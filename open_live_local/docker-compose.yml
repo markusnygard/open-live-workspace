@@ -29,6 +29,7 @@ services:
       - STROM_ADMIN_PASSWORD_HASH=${STROM_ADMIN_PASSWORD_HASH}
       - STROM_SERVER_ICE_SERVERS=stun:127.0.0.1:3478
       - NVIDIA_DRIVER_CAPABILITIES=all
+      - GST_PLUGIN_FEATURE_RANK=nvcudadec:0,nvcuviddec:0,nvh264dec:0,nvvp8dec:0,nvvp9dec:0
     deploy:
       resources:
         reservations:
