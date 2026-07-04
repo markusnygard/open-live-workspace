@@ -181,6 +181,18 @@ const server = createServer(async (req, res) => {
       return;
     }
     const result = runCompose(mode, "up");
+    // Force-start any containers stuck in "Created" state
+    try {
+      const containers = CONTAINERS[mode];
+      if (containers) {
+        for (const cid of Object.values(containers)) {
+          const state = sh("docker inspect --format '{{.State.Status}}' \"" + cid + "\"", { timeout: 3000 });
+          if (state === 'created') {
+            sh("docker start \"" + cid + "\"", { timeout: 30000 });
+          }
+        }
+      }
+    } catch { /* best effort */ }
     sendJson(res, result.ok ? 200 : 500, result);
     return;
   }
