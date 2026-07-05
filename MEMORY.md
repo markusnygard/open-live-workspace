@@ -1227,3 +1227,127 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 2. **Logic of mediaplayer buttons not working** — Transport button borders should show colored when active (green=playing, amber=paused, red=stopped) and zinc when inactive. Fix applied in code but frontend container may need rebuild. Also: play button sends GOTO(0) to force loading new playlist file before PLAY.
 
 3. **Loop-button not working** — `loop_playlist` is a non-live Strom property (can only be set at flow creation time). Implemented software loop in frontend: when `loopOn` is true and playerState reaches `stopped` near duration end, auto-sends PLAY. Fix applied in code but frontend container may need rebuild.
+
+4. **Audio channel routing (audiorouter) — Strom feature request** — `builtin.audiorouter` has all properties `live: false`. Live channel remapping not possible without a Strom architecture change. See Feature Request section below. Stereo linking (ganging two adjacent mixer strips) is a separate Studio-level feature that can be implemented independently.
+
+5. **Studio audio panel enhancements** — Per-strip H/G/C/E processing buttons, pan knob, input gain, 4-band EQ, gate, compressor, and stereo linking. All backend-ready (Strom properties are `live: true`) but require frontend build. See Strom Audiomixer UI reference above.
+
+---
+
+## Feature Request: Independent Output Flows via Inter-Pipeline
+
+> Design spec for decoupling output flows from the main production flow. Not yet implemented.
+
+### Problem
+
+Currently all outputs (SRT, NDI, SDI, recorder) are wired into a single Strom flow alongside the vision mixer and sources. This means every output starts/stops with the production — you can't start recording without the stream running, or stop SDI output without killing the whole production.
+
+### Solution
+
+Use Strom's `builtin.inter_output` / `builtin.inter_input` blocks to split outputs into their own flows:
+
+```
+Production "Live Show" activated:
+
+  ┌─ Main Flow (always running) ──────────────────────────────┐
+  │                                                           │
+  │  Sources → Mixer → inter_output("srt_out_prod-a1b2c3d4")  │
+  │                   inter_output("ndi_out_prod-a1b2c3d4")   │
+  │                   inter_output("rec_main_prod-a1b2c3d4")  │
+  │                                                           │
+  └───────────────────────────────────────────────────────────┘
+              │              │              │
+              ▼              ▼              ▼
+  ┌─ SRT Flow ───┐  ┌─ NDI Flow ───┐  ┌─ Rec Flow ───┐
+  │ inter_input  │  │ inter_input  │  │ inter_input  │
+  │    → srt_out │  │    → ndi_out │  │    → recorder │
+  └──────────────┘  └──────────────┘  └──────────────┘
+    stopped            stopped            stopped
+   (start on click)   (start on click)   (start on click)
+```
+
+### Channel Naming
+
+`{outputName}_{productionIdFirst8}` — e.g. `srt_main_feed_prod-a1b2c3d4`
+
+Unique, traceable, survives output name changes.
+
+### Lifecycle
+
+1. **Production activated** → main flow created + started. Output flows created (stopped).
+2. **Click "Stream"** → SRT flow started. Click again → stopped.
+3. **Click "SDI Out"** → SDI flow started. Click again → stopped.
+4. **Click "Rec"** → Recorder flow started. Click again → stopped.
+5. **Production deactivated** → all flows stopped + deleted.
+
+WHEP outputs (multiviewer, PGM preview) stay in the main flow — always needed.
+
+### Resource Cost
+
+| | One flow (current) | Separate flows |
+|---|---|---|
+| GPU memory | 1× NVENC session per output | Same |
+| System RAM | ~500MB | +~100MB per output flow |
+| CPU threads | ~8-15 | +~2-5 per output flow |
+| GPU encode | 1 encoder instance | 1 per flow (NVENC supports 2-3 on P6000) |
+| Inter-flow transport | N/A | Shared memory, zero-copy, negligible CPU |
+
+### Backend Changes
+
+- `flow-generator.ts`: split into main flow (sources + mixer + inter_outputs) and output flows (inter_input → output block type)
+- `productions.ts`: manage multiple flows per production (create all, start main, start/stop outputs on demand)
+- New WS messages: `OUTPUT_START`, `OUTPUT_STOP` per `outputId`
+- `db/types.ts`: add `outputFlowIds: Record<string, string>` to `ProductionDoc`
+- Activate creates all flows at once; main starts immediately, outputs start on-demand
+- Deactivate stops + deletes all flows
+
+### Frontend Changes
+
+- Start/stop buttons per output in production view (stream, SDI, recorder)
+- Visual state indicator per output (running = green dot, stopped = grey dot, error = red)
+- New WS message types `OUTPUT_START` / `OUTPUT_STOP` added to `useControllerWs.ts`
+
+---
+
+## Feature Request: Live Audio Routing Matrix (Strom-level change)
+
+> **Target: Eyevinn/strom** — requires a Strom architecture change, not possible from Open-Live side.
+
+### Problem
+
+Strom's `builtin.audiorouter` block has all properties set to `live: false`. The routing matrix is built once at flow construction time and cannot be changed while the pipeline is running. This means:
+
+- Channel remapping across multi-channel sources (SDI, NDI, AES67) requires stopping the production
+- No real-time repatching during a live show — everything must be pre-configured
+- Can't reassign channels on the fly when sources change or new audio feeds arrive
+
+### Root Cause
+
+The audiorouter builds its entire internal GStreamer audio wiring at construction time — it analyzes which outputs need mixers, creates direct or mixed paths, and instantiates the right elements. Once built, the pipeline is static. Changing the matrix would require tearing down and rebuilding audio paths, which can't be done while GStreamer is in PLAYING state.
+
+### Proposed Solution
+
+Rebuild the audiorouter using a valve-based architecture:
+
+- **Pre-allocate all possible routes** at construction time with `valve` elements on each path
+- The routing matrix becomes a set of valve open/close operations instead of pipeline construction
+- `routing_matrix` property becomes `live: true` — changes apply instantly
+- Fan-out (one input → multiple outputs) handled by tee elements
+- Mixing (multiple inputs → one output) pre-routed through `audiomixer` with per-input gain control
+
+Alternatively, use `audiomixer` everywhere with per-input gain:
+
+- All inputs always connected to all outputs via mixer elements
+- "Routing" is simply setting gain to 0 (disconnect) or 1.0 (connect) per input on each output mixer
+- Even simpler implementation, no valve complexity
+- Slightly higher CPU usage (all mixers running even with gain=0)
+
+### Use Case
+
+The primary use case is multi-channel source remapping. For example, an SDI source with 4 audio channels where the operator needs:
+
+- Ch1 → Mixer strip 1 (mono)
+- Ch2 → Mixer strip 2 (mono)
+- Ch3 + Ch4 → Mixer strip 3 (stereo pair, left/right)
+
+Without live routing, this must be configured before showtime and cannot be changed mid-show. With a live matrix, the operator could repatch channels in real-time as sources change.
