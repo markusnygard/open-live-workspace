@@ -1202,3 +1202,28 @@ AES67 is the recommended audio-only format for networked live production. SRT ca
 3. Set iptables port forwarding on VPS
 4. Create Open Live + Studio instances on OSC with `STROM_URL=http://<vps-ip>:8080`
 5. Verify: WHEP monitoring works through DERP, PGM SRT streams outbound, REST API functional through VPS
+
+---
+
+## Media Player — Remaining Issues (2026-07-05)
+
+### What works:
+- Video reaches multiviewer and PGM via WHEP
+- Player state polling (progress bar, timer, status dot)
+- Playlist sync to Strom when clips are added
+- Loop default set to `false` (software loop in frontend)
+- Auto-stop after production activation (doesn't auto-play)
+- Clip change via GOTO(0) before PLAY
+
+### Strom fixes deployed (custom image `open-live-strom-ndi:0.6.6-mpfixed`):
+- `is_live(true)` + `capsfilter` (video/x-raw, audio/x-raw) between appsrc and queue in builder.rs
+- PAUSED→PLAYING cycle on appsrc elements during `load_current_file_inner` in state.rs
+- GPU decode disabled via `GST_PLUGIN_FEATURE_RANK` env var in docker-compose.yml
+
+### Remaining TODO:
+
+1. **Audio meter not working** — No channel-level meter data reaching the frontend. Strom emits `MeterData` events for main/monitor/aux/group but not `ch0`/`ch1`. Root cause: audio `not-negotiated` error on appsrc_audio prevents audio data from reaching the audio mixer's level elements. The capsfilter fix should resolve this but may need verification.
+
+2. **Logic of mediaplayer buttons not working** — Transport button borders should show colored when active (green=playing, amber=paused, red=stopped) and zinc when inactive. Fix applied in code but frontend container may need rebuild. Also: play button sends GOTO(0) to force loading new playlist file before PLAY.
+
+3. **Loop-button not working** — `loop_playlist` is a non-live Strom property (can only be set at flow creation time). Implemented software loop in frontend: when `loopOn` is true and playerState reaches `stopped` near duration end, auto-sends PLAY. Fix applied in code but frontend container may need rebuild.
