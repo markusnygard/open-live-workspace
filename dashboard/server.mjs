@@ -13,6 +13,7 @@ const CONTAINERS = {
     strom:     "open-live-local-strom",
     "open-live": "open-live-local-backend",
     studio:     "open-live-local-studio",
+    modular:    "open-live-modular-studio",
   },
   hybrid: {
     couchdb:    "open-live-hybrid-db",
@@ -28,6 +29,7 @@ const VERSION_PROBES = {
 const GIT_REPOS = {
   "open-live": "backend",
   studio:       "frontend",
+  modular:      "../open-live-modular-studio",
 };
 
 function sh(cmd, opts) {
@@ -279,6 +281,41 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (path === "/api/modular/start" && req.method === "POST") {
+    try {
+      const modularDir = join(ROOT, "..", "open-live-modular-studio");
+      // Stop and remove if already exists (could be stopped)
+      try { sh("docker rm -f open-live-modular-studio", { timeout: 5000 }); } catch {}
+      sh(
+        "docker run -d --name open-live-modular-studio" +
+        " --network open_live_local_default" +
+        " -v \"" + modularDir + ":/app\"" +
+        " -e OPEN_LIVE_URL=http://open-live:8000" +
+        " -e CI=true" +
+        " -e COREPACK_ENABLE_STRICT=0" +
+        " -w /app" +
+        " -p 3200:3200" +
+        " node:23-slim" +
+        " sh -c \"corepack enable && pnpm install && pnpm exec vite --host 0.0.0.0 --port 3200 --strictPort\"",
+        { timeout: 30000 }
+      );
+      sendJson(res, 200, { ok: true });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: e.stderr || e.message });
+    }
+    return;
+  }
+
+  if (path === "/api/modular/stop" && req.method === "POST") {
+    try {
+      sh("docker rm -f open-live-modular-studio", { timeout: 20000 });
+      sendJson(res, 200, { ok: true });
+    } catch (e) {
+      sendJson(res, 500, { ok: false, error: e.stderr || e.message });
+    }
+    return;
+  }
+
   res.writeHead(200, { "Content-Type": "text/html" });
   res.end(PAGE);
 });
@@ -355,11 +392,12 @@ const PAGE = [
 "<main id=\"app\"><p style=\"color:var(--muted);text-align:center;padding:40px;\">Loading...</p></main>",
 "<div class=\"overlay\" id=\"overlay\" onclick=\"if(event.target===this)closeModal()\"><div class=\"modal\" id=\"modal\"></div></div>",
 "<script>",
-"var API='/api';var pc=0;var autoStart=false;",
+"var API='/api';var pc=0;var autoStart=false;var lastStatus={};",
 "function cls(s){if(!s)return'unknown';if(s==='running'||s==='healthy'||s==='starting')return'running';return'stopped'}",
 "function dot(s){return'<span class=\"dot '+cls(s)+'\"></span>'}",
 "function fmtUptime(ms){if(ms<=0)return'';var s=Math.floor(ms/1000);var m=Math.floor(s/60);s%=60;var h=Math.floor(m/60);m%=60;if(h>0)return h+'h '+m+'m';if(m>0)return m+'m';return s+'s'}",
 "function render(d){",
+" lastStatus=d;",
 " var h='';",
 " for(var mode in d){",
 "  var ctr=d[mode];",
@@ -391,6 +429,8 @@ const PAGE = [
 "  if(running>0)h+='<button class=\"btn stop\" onclick=\"stopMode(\\''+mode+'\\')\">Stop All</button>';",
 "  if(mode==='hybrid')h+='<button class=\"btn '+(autoStart?'autostart-on':'autostart-off')+'\" onclick=\"toggleAutoStart()\">'+(autoStart?'Hybrid autostart: ON':'Hybrid autostart: OFF')+'</button>';",
 "  if(mode==='local'&&ctr.studio&&ctr.studio.status==='running')h+='<button class=\"btn studio-btn\" onclick=\"window.open(\\'http://'+window.location.hostname+':3000\\',\\'_blank\\')\">Open Studio</button>';",
+"  if(mode==='local')h+='<button class=\"btn '+(ctr.modular&&ctr.modular.status==='running'?'stop':'start')+'\" onclick=\"toggleModular()\">'+(ctr.modular&&ctr.modular.status==='running'?'Stop modular':'Start modular')+'</button>';",
+"  if(mode==='local'&&ctr.modular&&ctr.modular.status==='running')h+='<button class=\"btn studio-btn\" onclick=\"window.open(\\'http://'+window.location.hostname+':3200\\',\\'_blank\\')\">Open modular</button>';",
 "  h+='</div></div>'",
 " }",
 " document.getElementById('app').innerHTML=h;",
@@ -447,6 +487,7 @@ const PAGE = [
 "  else{toast('Error: '+(d.error||'unknown'),false)}",
 " }catch(e){toast('Request failed: '+e.message,false)}",
 "}",
+"async function toggleModular(){\n var ctr=(lastStatus&&lastStatus.local&&lastStatus.local.modular)||{status:'unknown'};\n var running=ctr.status==='running';\n if(running){\n  toast('Stopping modular...',true);\n  try{\n   var r=await fetch(API+'/modular/stop',{method:'POST'});\n   var d=await r.json();\n   if(d.ok){toast('Modular studio stopped.',true);setTimeout(poll,2000)}\n   else{toast('Error: '+(d.error||'unknown'),false)}\n  }catch(e){toast('Request failed: '+e.message,false)}\n } else {\n  toast('Starting modular...',true);\n  try{\n   var r=await fetch(API+'/modular/start',{method:'POST'});\n   var d=await r.json();\n   if(d.ok){toast('Modular studio starting...',true);setTimeout(poll,3000)}\n   else{toast('Error: '+(d.error||'unknown'),false)}\n  }catch(e){toast('Request failed: '+e.message,false)}\n }\n}",
 "async function restartOne(mode,name){",
 " toast('Restarting '+name+'...',true);",
 " try{",
