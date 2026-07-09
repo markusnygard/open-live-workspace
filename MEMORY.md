@@ -1351,3 +1351,119 @@ The primary use case is multi-channel source remapping. For example, an SDI sour
 - Ch3 + Ch4 → Mixer strip 3 (stereo pair, left/right)
 
 Without live routing, this must be configured before showtime and cannot be changed mid-show. With a live matrix, the operator could repatch channels in real-time as sources change.
+
+---
+
+## Feature Request: Merge Transition (Strom-level change)
+
+> **Target: Eyevinn/strom** — requires layer-aware transition support in `builtin.vision_mixer`.
+
+### What is Merge?
+
+In vMix, the **Merge** transition is an automated animation that seamlessly transitions between two inputs sharing common layers. Instead of a hard cut or fade, it compares the layer structure of Preview and Program, finds matching sources, and animates their position/size changes while fading out non-matching layers.
+
+**Example:** A two-person split-screen → full-screen zoom on one person. The matching person's layer smoothly zooms from the small box to full-screen, while the other person's layer fades out.
+
+### Problem
+
+The current `builtin.vision_mixer` treats all inputs as flat video frames. Transitions operate on the final composited frame — there is no concept of individual layers within the mixer that can be compared or animated independently. Merge requires:
+
+1. Layer enumeration — the mixer must expose which sources/layers are on each input
+2. Layer matching — identify layers that exist in both Preview and Program with the same source
+3. Per-layer animation — animate matching layers' position/size from source state to destination state over the transition duration
+4. Per-layer fade — non-matching layers fade out (or use a standard fade transition as fallback)
+
+None of this is currently possible with the flat-frame transition model.
+
+### Proposed Solution
+
+Extend `builtin.vision_mixer` with a `merge` transition type:
+
+- **At transition start**: snapshot the layer stack of both PGM and PVW inputs
+- **Identify matching layers**: same source channel → same layer in both stacks
+- **Build animation paths**: for each matching layer, compute the interpolated position/size from PVW state to PGM state
+- **Animate during transition**: update each matching layer's x/y/width/height per frame over the transition duration
+- **Handle non-matching layers**: fade out PVW-only layers, fade in PGM-only layers
+- **Smart Merge** (optional): reorder layers in PVW to match PGM layer order before animating, to ensure the cleanest possible transition
+
+This is a significant architectural change — the vision mixer currently composites all layers into a single frame before transitions run. Merge needs access to the pre-composited layer stack, which requires refactoring the video pipeline.
+
+### Use Case
+
+Multi-box interview setups, PiP transitions, graphics overlays — any scenario where the operator wants a polished, "news broadcast" style transition where elements glide to new positions instead of cut/fade.
+
+### Frontend Impact
+
+Once Strom supports `merge`, the Studio UI would need:
+- A "MERGE" chip in the TransitionPanel (alongside FADE, DIP, etc.)
+- A "Merge" entry in TRANSITION_TYPES + TRANSITION_LABELS
+- No additional UI changes — it's just another transition type, selected like any other
+
+---
+
+## Audio Panel Dynamics — Implementation (2026-07-05, local only, NOT pushed)
+
+### What was built
+
+**Backend:**
+- `AUDIO_DYNAMICS_SET` WS message type + handler in `controller.ts`
+  - Maps logical property names (gain, pan, hpf_freq, gate_threshold, comp_ratio, eq1_freq, etc.) to Strom's internal element IDs and property names using a `DYNAMICS_MAP` lookup table
+  - Channel indexing: channel 1 → `gain_0`, `hpf_0`, `gate_0`, `comp_0`, `eq_0`
+  - Property mappings discovered from Strom's block definition API:
+    - `ch1_gain` → element `gain_0`, property `volume`
+    - `ch1_pan` → element `pan_0`, property `panorama`
+    - `ch1_hpf_enabled` → element `_block`, property `ch1_hpf_enabled` (block-level, non-live)
+    - `ch1_hpf_freq` → element `hpf_0`, property `cutoff`
+    - `ch1_gate_enabled` → element `gate_0`, property `enabled`
+    - `ch1_gate_threshold` → element `gate_0`, property `gt`
+    - `ch1_gate_attack` → element `gate_0`, property `at`
+    - `ch1_gate_release` → element `gate_0`, property `rt`
+    - `ch1_comp_enabled` → element `comp_0`, property `enabled`
+    - `ch1_comp_threshold` → element `comp_0`, property `al`
+    - `ch1_comp_ratio` → element `comp_0`, property `cr`
+    - `ch1_comp_attack` → element `comp_0`, property `at`
+    - `ch1_comp_release` → element `comp_0`, property `rt`
+    - `ch1_comp_makeup` → element `comp_0`, property `mk`
+    - `ch1_comp_knee` → element `comp_0`, property `kn`
+    - `ch1_eq_enabled` → element `eq_0`, property `enabled`
+    - `ch1_eq1-4_freq/gain/q` → element `eq_0`, properties `f-0`/`g-0`/`q-0` through `f-3`/`g-3`/`q-3`
+  - Block-level properties (hpf_enabled) use `strom.updateBlockProperties()`
+  - Element-level properties use `strom.properties.updateElement()`
+  - Broadcasts `AUDIO_DYNAMICS_STATE` to all connected clients after each update
+- `updateBlockProperties()` method added to `StromClient` (PATCH `/api/flows/{flowId}/blocks/{blockId}/properties`)
+- `AUDIO_DYNAMICS_STATE` received by frontend → updates `audio.store.ts` `dynamics` map
+
+**Frontend:**
+- `ProcessingPopup.tsx` — new component (dark overlay, modal)
+  - Sections: Gain (knob, -20 to +20 dB), HPF (freq knob + enable toggle), Gate (threshold/attack/release knobs + enable), Compressor (threshold/ratio/attack/release/makeup/knee knobs + enable), EQ (4-band: freq/gain/Q per band + enable)
+  - Knob component: vertical range slider with label + value readout
+  - Toggle component: checkbox for enable/disable
+  - Section component: colored header button that toggles enable state
+- `AudioPanel.tsx` — channel strip enhancements:
+  - H/G/C/E buttons below channel name: 4 tiny colored squares (purple/green/orange/blue when active, dark gray when off)
+  - Click any H/G/C/E button → opens ProcessingPopup for that channel
+  - Pan slider (L/R range input) below ON/AFV buttons on input channels
+  - `chNum` prop added to `ChannelStrip` — derived from `elementId` (e.g., `ch1` → 1)
+- `audio.store.ts` — new `dynamics` state field (`chN_property → value`) and `applyDynamics` action
+- `useControllerWs.ts` — `AUDIO_DYNAMICS_SET` outbound message type, `AUDIO_DYNAMICS_STATE` inbound handler, `applyDynamics` wired into `actionsRef`
+
+**Strom property live status (verified from API):**
+All dynamics properties are `live: true` EXCEPT `hpf_enabled`. The `live=False` in the earlier MEMORY.md spec was a bug in my analysis script (I was reading the wrong field).
+
+| Property | Live |
+|----------|------|
+| `chN_gain` | ✓ |
+| `chN_pan` | ✓ |
+| `chN_hpf_enabled` | ✗ (block-level, non-live) |
+| `chN_hpf_freq` | ✓ |
+| `chN_gate_*` (4 params) | ✓ all |
+| `chN_comp_*` (6 params) | ✓ all |
+| `chN_eq1-4_*` (12 params) | ✓ all |
+
+### Files changed (local only, NOT pushed):
+- backend: `lib/strom.ts`, `ws/controller.ts`
+- frontend: `components/ProcessingPopup.tsx` (new), `pages/ControllerPage/AudioPanel.tsx`, `store/audio.store.ts`, `hooks/useControllerWs.ts`
+
+### Known issues:
+- `gain_0.volume` (ch1_gain) property PATCH reports success in Strom logs but value doesn't persist in the element. The `pan_0.panorama` property works correctly via the same element-level PATCH mechanism. This may be a Strom bug with the `volume` element used as a gain stage — the `volume` GStreamer element might clamp or override values set via property PATCH.
+- `hpf_enabled` is non-live (block-level property). The toggle works but requires deactivate → reactivate to apply.
