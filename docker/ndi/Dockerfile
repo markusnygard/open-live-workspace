@@ -4,8 +4,9 @@ FROM rust:1-slim-bookworm AS builder
 # Need NDI SDK for linking
 COPY ndi-libs/libndi.so* /usr/lib/x86_64-linux-gnu/
 RUN cd /usr/lib/x86_64-linux-gnu && \
-    ln -sf libndi.so.* libndi.so 2>/dev/null && \
-    ldconfig
+    cp libndi.so.6.* libndi.so.6 2>/dev/null; \
+    cp libndi.so.6 libndi.so 2>/dev/null; \
+    ldconfig || true
 
 RUN apt-get update && apt-get install -y \
     git pkg-config \

@@ -1,0 +1,48 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+
+# IDE
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+
+# Frontend build output
+frontend/dist/
+backend/dist/
+backend/.frontend-build-hash
+
+# Runtime files
+flows.json
+blocks.json
+config.toml
+.strom.toml
+*.log
+
+# Local secrets / env (never commit)
+.env
+.envrc
+
+# OS
+.DS_Store
+Thumbs.db
+
+docker-compose.yml
+
+# other
+/*.sh
+/notes.txt
+/media
+/.mcp.json
+*.pem
+strom-data
+
+whip-iterate-instructions.md
+
+# OpenAPI snapshot test diff artifact
+backend/tests/openapi_snapshot.json.new
+openapi.json.new
