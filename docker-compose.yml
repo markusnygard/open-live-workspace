@@ -1,6 +1,6 @@
 services:
   couchdb:
-    image: couchdb:3.3
+    image: couchdb:3.5.2.1
     container_name: open-live-db
     environment:
       - COUCHDB_USER=admin
@@ -11,14 +11,14 @@ services:
       - "0.0.0.0:5984:5984"
 
   strom:
-    image: eyevinntechnology/strom-full:latest
+    image: open-live-strom-ndi:0.6.12
     container_name: strom-service
     ports:
       - "0.0.0.0:8080:8080"
       - "0.0.0.0:5000:5000/udp"
 
   open-live:
-    image: node:23-slim
+    image: node:lts-slim
     container_name: open-live-backend
     working_dir: /app
     volumes:
@@ -45,7 +45,7 @@ services:
       - strom
 
   open-live-studio-ui:
-    image: node:23-slim
+    image: node:lts-slim
     container_name: open-live-studio-ui
     working_dir: /app
     volumes:

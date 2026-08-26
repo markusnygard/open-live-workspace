@@ -3,6 +3,18 @@ node_modules/
 db-data/
 .pnpm-store/
 
+# SRT gateway local config (SRT addresses must never be committed)
+open_live_srt/srt-config.json
+open_live_srt/srt-channels.conf
+open_live_srt/srt-stream.conf
+open_live_srt/srt-streams.pids
+open_live_srt/srt-streams.status
+open_live_srt/logs/
+open_live_srt/srt-sender.log
+open_live_srt/test.txt
+# Proprietary BMD runtime library (add locally before building the ffmpeg image)
+open_live_srt/ffmpeg-decklink/decklink/libDeckLinkAPI.so
+
 # Sub-repos (managed separately)
 backend/
 frontend/

@@ -31,6 +31,11 @@
 ## GStreamer Queues
 - Leave `queue`, `queue2`, and `multiqueue` elements with default property values unless there is a documented latency requirement that justifies overriding them.
 
+## GStreamer Memory Formats
+- A block emits the memory type it naturally produces (system, GL, CUDA, ...). The **consuming** block adapts its own input. A producer does not know its consumer, so any producer-side download is wrong for half the graph and costs a GPU round trip per frame in the other half.
+- Adapt at build time where the input is known (`glupload` on a GL consumer's inputs). Where it depends on what `decodebin` autoplugged upstream, decide from the negotiated caps — `gst::gl_bridge` does this for GL memory.
+- Beware sinks that advertise GPU memory features they cannot actually process: `whepserversink` accepts `video/x-raw(memory:GLMemory)` and then fails encoder discovery. A successful link is not proof the consumer can use the frames.
+
 ## Code Organization
 - When working in or near a file that exceeds 1500 lines, proactively suggest splitting it into focused sub-modules (following the pattern used for `pipeline.rs` and `app.rs`)
 - Each sub-module should have a single clear responsibility (e.g. construction, lifecycle, linking, properties)
@@ -56,6 +61,12 @@
 ## WebSocket Contract
 - Any type referenced by a new `StromEvent` variant must have a `ToSchema` annotation (`#[cfg_attr(feature = "openapi", derive(ToSchema))]`). If the variant introduces new inner types, those need `ToSchema` too.
 - Never modify an existing `StromEvent` variant (rename, change fields, remove) without treating it as an intentional breaking change.
+
+## Tests
+- A regression test must exercise the code it guards — it has to call the changed module, not rebuild equivalent behaviour inline. A test that reconstructs a pipeline topology by hand documents a bug; it does not stop the bug returning.
+- A regression test must fail if the fix is reverted. If it hardcodes the fixed path (e.g. a `use_queues: true` flag with no failing counterpart), it is a demonstration, not a guard — say so in the PR body and explain why a real guard is not feasible.
+- A test that requires a GStreamer element must be able to run in CI. Tests that skip on a missing element pass green and guard nothing, so check the package list in `.github/workflows/ci.yml` before relying on one, and add the missing package in the same PR.
+- State in the PR body which tests you actually ran, and which were skipped or not run. "CI is green" is not the same as "the new test executed".
 
 ## Dead Code
 - Never use blanket `#![allow(dead_code)]`. Each case must be handled individually. Never use `#[allow(dead_code)]` in `strom-types`.

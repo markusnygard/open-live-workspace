@@ -1,6 +1,6 @@
 services:
   couchdb:
-    image: couchdb:3.5.2
+    image: couchdb:3.5.2.1
     container_name: open-live-local-db
     restart: unless-stopped
     environment:
@@ -64,7 +64,7 @@ services:
         max-file: "5"
 
   stun-server:
-    image: node:23-slim
+    image: node:lts-slim
     container_name: open-live-local-stun
     restart: unless-stopped
     network_mode: host
@@ -92,7 +92,7 @@ services:
       "
 
   open-live:
-    image: node:23-slim
+    image: node:lts-slim
     container_name: open-live-local-backend
     restart: unless-stopped
     working_dir: /app
@@ -128,7 +128,7 @@ services:
         condition: service_healthy
 
   open-live-studio:
-    image: node:23-slim
+    image: node:lts-slim
     container_name: open-live-local-studio
     restart: unless-stopped
     working_dir: /app
