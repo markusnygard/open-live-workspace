@@ -1,3 +1,8 @@
+# Builds ffmpeg with DeckLink input/output support for the SRT gateway.
+# The decklink/ dir contains the BMD Desktop Video SDK /Linux/Include headers
+# (see decklink/README.md + BLACKMAGIC_EULA.txt). libDeckLinkAPI.so is NOT in git;
+# copy it into decklink/ before building:
+#   cp /usr/lib/libDeckLinkAPI.so open_live_srt/ffmpeg-decklink/decklink/
 FROM debian:bookworm-slim AS build
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
