@@ -89,7 +89,7 @@ const SRT_BITRATES = [4, 6, 8, 12, 25];
 
 function defaultSrtConfig() {
   return {
-    stream: { codec: "h264", bitrate: 6 },
+    stream: { codec: "h264", bitrate: 6, video_mode: "auto" },
     ports: Array.from({ length: 12 }, (_, i) => ({ id: "SDI" + (i + 1), role: "off", address: "", device: i })),
   };
 }
@@ -101,6 +101,7 @@ function loadSrtConfig() {
   cfg.stream = {
     codec: SRT_CODECS.includes(cfg.stream && cfg.stream.codec) ? cfg.stream.codec : "h264",
     bitrate: SRT_BITRATES.includes(Number(cfg.stream && cfg.stream.bitrate)) ? Number(cfg.stream.bitrate) : 6,
+    video_mode: (cfg.stream && cfg.stream.video_mode) || "auto",
   };
   cfg.ports = cfg.ports.map((p, i) => ({
     id: (p.id || "SDI" + (i + 1)).replace(/^SDI (\d+)$/, "SDI$1"),
@@ -116,6 +117,7 @@ function saveSrtConfig(cfg) {
     stream: {
       codec: SRT_CODECS.includes(cfg.stream && cfg.stream.codec) ? cfg.stream.codec : "h264",
       bitrate: SRT_BITRATES.includes(Number(cfg.stream && cfg.stream.bitrate)) ? Number(cfg.stream.bitrate) : 6,
+      video_mode: (cfg.stream && cfg.stream.video_mode) || "auto",
     },
     ports: (cfg.ports || []).map((p, i) => ({
       id: (p.id || "SDI" + (i + 1)).replace(/^SDI (\d+)$/, "SDI$1"),
@@ -173,7 +175,8 @@ function buildSrtFlow(port, index, stream) {
   if (port.role === "sender") {
     blocks.push(
       { id: "dl", block_definition_id: "builtin.decklink_input", name: port.id + " In",
-        properties: { device_number: index, stream_mode: "audio_video" }, position: { x: 0, y: 0 } },
+        properties: { device_number: device, stream_mode: "audio_video", mode: stream.video_mode || "auto" },
+        position: { x: 0, y: 0 } },
       { id: "enc", block_definition_id: "builtin.videoenc", name: port.id + " Enc",
         properties: { codec: stream.codec, bitrate: stream.bitrate * 1000 }, position: { x: 160, y: 0 } },
       { id: "efp", block_definition_id: "builtin.efpsrt_output", name: port.id + " EFP",
@@ -190,7 +193,7 @@ function buildSrtFlow(port, index, stream) {
       { id: "efpi", block_definition_id: "builtin.efpsrt_input", name: port.id + " EFP",
         properties: { srt_uri: addr, decode: true, num_video_tracks: 1, latency: 120 }, position: { x: 0, y: 0 } },
       { id: "dlo", block_definition_id: "builtin.decklink_output", name: port.id + " Out",
-        properties: { device_number: index, stream_mode: "audio_video" }, position: { x: 200, y: 0 } },
+        properties: { device_number: device, stream_mode: "audio_video" }, position: { x: 200, y: 0 } },
     );
     links.push(
       { from: "efpi:video_out", to: "dlo:video_in" },
@@ -772,14 +775,15 @@ const PAGE = [
 " var overlay=document.getElementById('overlay');",
 " var h='<div class=\"modal-header\"><h3>SRT GATEWAY SETTINGS</h3><button class=\"close-btn\" onclick=\"closeModal()\">x</button></div>';",
 " h+='<div style=\"padding:16px 20px\">';",
-" if(!srtCfg.stream)srtCfg.stream={codec:'h264',bitrate:6};",
+" if(!srtCfg.stream)srtCfg.stream={codec:'h264',bitrate:6,video_mode:'auto'};",
 " h+='<h3 style=\"margin:0 0 6px\">Stream Settings (all channels)</h3>';",
-" h+='<table class=\"ps-table\"><thead><tr><th>Codec</th><th>Bitrate (Mbps)</th></tr></thead><tbody><tr>';",
+" h+='<table class=\"ps-table\"><thead><tr><th>Codec</th><th>Bitrate (Mbps)</th><th>Video Mode</th></tr></thead><tbody><tr>';",
 " h+='<td><select id=\"st_codec\"><option value=\"h264\"'+(srtCfg.stream.codec==='h264'?' selected':'')+'>h264</option><option value=\"h265\"'+(srtCfg.stream.codec==='h265'?' selected':'')+'>h265</option></select></td>';",
 " h+='<td><select id=\"st_bitrate\">';",
 " var brs=[4,6,8,12,25];",
 " for(var b=0;b<brs.length;b++){h+='<option value=\"'+brs[b]+'\"'+(Number(srtCfg.stream.bitrate)===brs[b]?' selected':'')+'>'+brs[b]+'</option>'}",
 " h+='</select></td>';",
+" h+='<td><input id=\"st_mode\" value=\"'+(srtCfg.stream.video_mode||'auto')+'\" placeholder=\"auto or e.g. 1080p50\" style=\"width:110px;background:var(--card);color:var(--text);border:1px solid var(--border);padding:4px\"></td>';",
 " h+='</tr></tbody></table>';",
 " h+='<h3 style=\"margin:16px 0 6px\">SDI Ports</h3>';",
 " h+='<table class=\"ps-table\"><thead><tr><th>SDI Port</th><th>Device #</th><th>Role</th><th>SRT Address</th></tr></thead><tbody>';",
@@ -805,6 +809,7 @@ const PAGE = [
 "async function saveSrtSettings(){",
 " srtCfg.stream.codec=document.getElementById('st_codec').value;",
 " srtCfg.stream.bitrate=Number(document.getElementById('st_bitrate').value);",
+" srtCfg.stream.video_mode=document.getElementById('st_mode').value;",
 " for(var i=0;i<srtCfg.ports.length;i++){",
 "  srtCfg.ports[i].id=document.getElementById('sdi_'+i).value;",
 "  srtCfg.ports[i].device=Number(document.getElementById('dev_'+i).value);",
