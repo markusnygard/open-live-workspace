@@ -82,15 +82,15 @@ function httpGetJson(port, path) {
 const SRT_DIR = join(ROOT, "open_live_srt");
 const SRT_CONFIG_FILE = join(SRT_DIR, "srt-config.json");
 const SRT_FLOW_PREFIX = "srt-gw-";
-const STROM_URL = process.env.STROM_URL || "http://localhost:8080";
-const STROM_KEY = process.env.STROM_KEY || "dev-key-local";
+const SRT_STROM_URL = process.env.SRT_STROM_URL || "http://localhost:8081";
+const SRT_STROM_KEY = process.env.SRT_STROM_KEY || "dev-key-local";
 const SRT_CODECS = ["h264", "h265"];
 const SRT_BITRATES = [4, 6, 8, 12, 25];
 
 function defaultSrtConfig() {
   return {
     stream: { codec: "h264", bitrate: 6 },
-    ports: Array.from({ length: 12 }, (_, i) => ({ id: "SDI" + (i + 1), role: "off", address: "" })),
+    ports: Array.from({ length: 12 }, (_, i) => ({ id: "SDI" + (i + 1), role: "off", address: "", device: i })),
   };
 }
 
@@ -106,6 +106,7 @@ function loadSrtConfig() {
     id: (p.id || "SDI" + (i + 1)).replace(/^SDI (\d+)$/, "SDI$1"),
     role: ["off", "sender", "receiver"].includes(p.role) ? p.role : "off",
     address: p.address || "",
+    device: Number.isInteger(p.device) ? p.device : i,
   }));
   return cfg;
 }
@@ -120,6 +121,7 @@ function saveSrtConfig(cfg) {
       id: (p.id || "SDI" + (i + 1)).replace(/^SDI (\d+)$/, "SDI$1"),
       role: ["off", "sender", "receiver"].includes(p.role) ? p.role : "off",
       address: p.address || "",
+      device: Number.isInteger(p.device) ? p.device : i,
     })),
   };
   writeFileSync(SRT_CONFIG_FILE, JSON.stringify(normalized, null, 2));
@@ -133,12 +135,12 @@ function ensureCaller(url) {
 
 async function stromReq(method, path, body) {
   try {
-    const opts = { method, headers: { "Authorization": "Bearer " + STROM_KEY } };
+    const opts = { method, headers: { "Authorization": "Bearer " + SRT_STROM_KEY } };
     if (body !== undefined) {
       opts.headers["Content-Type"] = "application/json";
       opts.body = JSON.stringify(body);
     }
-    const res = await fetch(STROM_URL + path, opts);
+    const res = await fetch(SRT_STROM_URL + path, opts);
     const text = await res.text();
     let data = null;
     try { data = JSON.parse(text); } catch {}
@@ -165,6 +167,7 @@ async function deleteSrtFlows() {
 
 function buildSrtFlow(port, index, stream) {
   const addr = ensureCaller(port.address);
+  const device = Number.isInteger(port.device) ? port.device : index;
   const blocks = [];
   const links = [];
   if (port.role === "sender") {
@@ -232,6 +235,7 @@ async function srtStatus() {
       sdi: p.id,
       role: p.role,
       address: p.address || "",
+      device: p.device,
       running: !!(f && f.running),
       color: p.role === "off" ? "off" : (f && f.running) ? "green" : "red",
     };
@@ -774,10 +778,11 @@ const PAGE = [
 " h+='</select></td>';",
 " h+='</tr></tbody></table>';",
 " h+='<h3 style=\"margin:16px 0 6px\">SDI Ports</h3>';",
-" h+='<table class=\"ps-table\"><thead><tr><th>SDI Port</th><th>Role</th><th>SRT Address</th></tr></thead><tbody>';",
+" h+='<table class=\"ps-table\"><thead><tr><th>SDI Port</th><th>Device #</th><th>Role</th><th>SRT Address</th></tr></thead><tbody>';",
 " for(var i=0;i<srtCfg.ports.length;i++){",
 "  var p=srtCfg.ports[i];",
 "  h+='<tr><td><input id=\"sdi_'+i+'\" value=\"'+p.id+'\" style=\"width:80px;background:var(--card);color:var(--text);border:1px solid var(--border);padding:4px\"></td>';",
+"  h+='<td><input id=\"dev_'+i+'\" type=\"number\" min=\"0\" max=\"11\" value=\"'+(p.device!=null?p.device:i)+'\" style=\"width:60px;background:var(--card);color:var(--text);border:1px solid var(--border);padding:4px\"></td>';",
 "  h+='<td><select id=\"role_'+i+'\" style=\"background:var(--card);color:var(--text);border:1px solid var(--border);padding:4px\">';",
 "  var ro=['off','sender','receiver'];",
 "  for(var j=0;j<ro.length;j++){h+='<option value=\"'+ro[j]+'\"'+(p.role===ro[j]?' selected':'')+'>'+ro[j]+'</option>'}",
@@ -798,6 +803,7 @@ const PAGE = [
 " srtCfg.stream.bitrate=Number(document.getElementById('st_bitrate').value);",
 " for(var i=0;i<srtCfg.ports.length;i++){",
 "  srtCfg.ports[i].id=document.getElementById('sdi_'+i).value;",
+"  srtCfg.ports[i].device=Number(document.getElementById('dev_'+i).value);",
 "  srtCfg.ports[i].role=document.getElementById('role_'+i).value;",
 "  srtCfg.ports[i].address=document.getElementById('addr_'+i).value;",
 " }",
