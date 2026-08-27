@@ -247,7 +247,7 @@ async function srtStatus() {
       color: p.role === "off" ? "off" : (f && f.running) ? "green" : "red",
     };
   });
-  return { flows: flows.length, channels };
+  return { flows: flows.length, stream: cfg.stream, channels };
 }
 
 async function probeVersion(svc, ctr) {
@@ -758,7 +758,9 @@ const PAGE = [
 " }",
 " h+='</div>';",
 " h+='<div class=\"srt-meta\">';",
-" h+='<span class=\"srt-ctr\">Strom EFP-SRT: '+(active>0?(running+'/'+active+' running'):'no streams configured')+'</span>';",
+" var st=srt.stream||{};",
+" var audio=(st.container==='efp')?'Opus':'AAC';",
+" h+='<span class=\"srt-ctr\">'+(st.codec||'h264').toUpperCase()+' &middot; '+(st.container||'mpegts')+' &middot; '+audio+' &middot; '+(st.bitrate||6)+' Mbps'+(st.video_mode&&st.video_mode!=='auto'?' &middot; '+st.video_mode:'')+' &mdash; '+(active>0?(running+'/'+active+' running'):'no streams configured')+'</span>';",
 " h+='<button class=\"btn show\" onclick=\"openSrtSettings()\">&#9881; Settings</button>';",
 " if(running>0){",
 "  h+='<button class=\"btn start\" onclick=\"srtStart()\">Restart</button>';",
@@ -781,15 +783,18 @@ const PAGE = [
 " h+='<div style=\"padding:16px 20px\">';",
 " if(!srtCfg.stream)srtCfg.stream={codec:'h264',bitrate:6,video_mode:'auto',container:'mpegts'};",
 " h+='<h3 style=\"margin:0 0 6px\">Stream Settings (all channels)</h3>';",
-" h+='<table class=\"ps-table\"><thead><tr><th>Codec</th><th>Bitrate (Mbps)</th><th>Video Mode</th><th>Container</th></tr></thead><tbody><tr>';",
+" h+='<table class=\"ps-table\"><thead><tr><th>Codec</th><th>Bitrate (Mbps)</th><th>Video Mode</th><th>Container</th><th>Audio</th></tr></thead><tbody><tr>';",
 " h+='<td><select id=\"st_codec\"><option value=\"h264\"'+(srtCfg.stream.codec==='h264'?' selected':'')+'>h264</option><option value=\"h265\"'+(srtCfg.stream.codec==='h265'?' selected':'')+'>h265</option></select></td>';",
 " h+='<td><select id=\"st_bitrate\">';",
 " var brs=[4,6,8,12,25];",
 " for(var b=0;b<brs.length;b++){h+='<option value=\"'+brs[b]+'\"'+(Number(srtCfg.stream.bitrate)===brs[b]?' selected':'')+'>'+brs[b]+'</option>'}",
 " h+='</select></td>';",
 " h+='<td><input id=\"st_mode\" value=\"'+(srtCfg.stream.video_mode||'auto')+'\" placeholder=\"auto or e.g. 1080p50\" style=\"width:110px;background:var(--card);color:var(--text);border:1px solid var(--border);padding:4px\"></td>';",
-" h+='<td><select id=\"st_container\"><option value=\"mpegts\"'+(srtCfg.stream.container!=='efp'?' selected':'')+'>mpegts</option><option value=\"efp\"'+(srtCfg.stream.container==='efp'?' selected':'')+'>efp</option></select></td>';",
+" h+='<td><select id=\"st_container\" onchange=\"updateAudioLabel()\"><option value=\"mpegts\"'+(srtCfg.stream.container!=='efp'?' selected':'')+'>mpegts</option><option value=\"efp\"'+(srtCfg.stream.container==='efp'?' selected':'')+'>efp</option></select></td>';",
+" h+='<td id=\"st_audio_cell\" style=\"font-weight:600;color:var(--accent)\"></td>';",
 " h+='</tr></tbody></table>';",
+" h+='<script>function updateAudioLabel(){var c=document.getElementById(\"st_container\").value;document.getElementById(\"st_audio_cell\").textContent=(c===\"efp\"?\"Opus\":\"AAC\")}</script>';",
+" h+='<p style=\"color:var(--muted);font-size:11px;margin-top:6px\">Audio is fixed by the container: mpegts = AAC, efp = Opus.</p>';",
 " h+='<h3 style=\"margin:16px 0 6px\">SDI Ports</h3>';",
 " h+='<table class=\"ps-table\"><thead><tr><th>SDI Port</th><th>Device #</th><th>Role</th><th>SRT Address</th></tr></thead><tbody>';",
 " for(var i=0;i<srtCfg.ports.length;i++){",
