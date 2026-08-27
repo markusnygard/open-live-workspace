@@ -136,6 +136,8 @@ services:
       - ../frontend:/app
     environment:
       - OPEN_LIVE_URL=http://${IP:-localhost}:8000
+      - CI=true
+      - COREPACK_ENABLE_STRICT=0
     command: >
       sh -c "corepack enable &&
       corepack prepare pnpm@latest --activate &&
