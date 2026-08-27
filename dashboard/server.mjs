@@ -108,8 +108,13 @@ function normalizeSrtStream(s) {
 function defaultSrtConfig() {
   return {
     stream: defaultSrtStream(),
-    ports: Array.from({ length: 12 }, (_, i) => ({ id: "SDI " + (i + 1), role: "off", address: "", device: "" })),
+    ports: Array.from({ length: 12 }, (_, i) => ({ id: "SDI" + (i + 1), role: "off", address: "", device: "" })),
   };
+}
+
+function normalizeSrtPortId(id, i) {
+  if (!id) return "SDI" + (i + 1);
+  return id.replace(/^SDI (\d+)$/, "SDI$1");
 }
 
 function loadSrtConfig() {
@@ -124,7 +129,7 @@ function loadSrtConfig() {
   cfg.ports = cfg.ports.map((p, i) => {
     let role = p.role || "off";
     if (!SRT_ROLES.includes(role)) role = /^receiver/.test(role) ? "receiver" : /^sender/.test(role) ? "sender" : "off";
-    return { id: p.id || "SDI " + (i + 1), role, address: p.address || "", device: p.device || "" };
+    return { id: normalizeSrtPortId(p.id, i), role, address: p.address || "", device: p.device || "" };
   });
   return cfg;
 }
@@ -132,7 +137,7 @@ function loadSrtConfig() {
 function saveSrtConfig(cfg) {
   const stream = normalizeSrtStream(cfg.stream);
   const normalized = { stream, ports: (cfg.ports || []).map((p, i) => ({
-    id: p.id || "SDI " + (i + 1),
+    id: normalizeSrtPortId(p.id, i),
     role: SRT_ROLES.includes(p.role) ? p.role : "off",
     address: p.address || "",
     device: p.device || "",
@@ -725,7 +730,7 @@ const PAGE = [
 " for(var i=0;i<srt.channels.length;i++){",
 "  var ch=srt.channels[i];",
 "  var tip=ch.sdi+(ch.role!=='off'?' &middot; '+ch.role+' &middot; '+(ch.address||'no addr')+(ch.bitrate?' &middot; '+Math.round(ch.bitrate/1000)+'/'+srt.stream.bitrate+'Mbps':''):' &middot; off');",
-"  h+='<span class=\"srt-light '+ch.color+'\" title=\"'+tip+'\">'+ch.sdi.replace('SDI ','SDI')+'</span>';",
+"  h+='<span class=\"srt-light '+ch.color+'\" title=\"'+tip+'\">'+ch.sdi+'</span>';",
 " }",
 " h+='</div>';",
 " h+='<div class=\"srt-meta\">';",
@@ -761,7 +766,7 @@ const PAGE = [
 " h+='<table class=\"ps-table\"><thead><tr><th>SDI Port</th><th>Role</th><th>SRT Address</th></tr></thead><tbody>';",
 " for(var i=0;i<srtCfg.ports.length;i++){",
 "  var p=srtCfg.ports[i];",
-"  h+='<tr><td>'+p.id+'</td>';",
+"  h+='<tr><td><input id=\"sdi_'+i+'\" value=\"'+p.id+'\" style=\"width:90px;background:var(--card);color:var(--text);border:1px solid var(--border);padding:4px\"></td>';",
 "  h+='<td><select id=\"role_'+i+'\" style=\"background:var(--card);color:var(--text);border:1px solid var(--border);padding:4px\">';",
 "  for(var j=0;j<rolesOpts.length;j++){h+='<option value=\"'+rolesOpts[j]+'\"'+(p.role===rolesOpts[j]?' selected':'')+'>'+rolesOpts[j]+'</option>'}",
 "  h+='</select></td>';",
@@ -782,6 +787,7 @@ const PAGE = [
 " srtCfg.stream.bitrate=Number(document.getElementById('st_bitrate').value);",
 " srtCfg.stream.audio=document.getElementById('st_audio').value;",
 " for(var i=0;i<srtCfg.ports.length;i++){",
+"  srtCfg.ports[i].id=document.getElementById('sdi_'+i).value;",
 "  srtCfg.ports[i].role=document.getElementById('role_'+i).value;",
 "  srtCfg.ports[i].address=document.getElementById('addr_'+i).value;",
 " }",
