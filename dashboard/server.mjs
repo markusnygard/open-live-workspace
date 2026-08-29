@@ -84,7 +84,7 @@ const SRT_CONFIG_FILE = join(SRT_DIR, "srt-config.json");
 const SRT_FLOW_PREFIX = "srt-gw-";
 const SRT_STROM_URL = process.env.SRT_STROM_URL || "http://localhost:8081";
 const SRT_STROM_KEY = process.env.SRT_STROM_KEY || "dev-key-local";
-const SRT_CODECS = ["h264", "h265", "av1"];
+const SRT_CODECS = ["h264", "h265"];
 const SRT_BITRATES = [4, 6, 12, 24];
 
 function defaultSrtConfig() {
@@ -793,7 +793,7 @@ const PAGE = [
 " h+='<h3 style=\"margin:0 0 6px\">Stream Settings (all channels)</h3>';",
 " h+='<table class=\"ps-table\"><thead><tr><th>Container</th><th>Codec</th><th>Bitrate (Mbps)</th><th>Video Mode</th></tr></thead><tbody><tr>';",
 " h+='<td><select id=\"st_container\"><option value=\"mpegts\"'+(srtCfg.stream.container!=='efp'?' selected':'')+'>mpegts</option><option value=\"efp\"'+(srtCfg.stream.container==='efp'?' selected':'')+'>efp</option></select></td>';",
-" h+='<td><select id=\"st_codec\"><option value=\"h264\"'+(srtCfg.stream.codec==='h264'?' selected':'')+'>h264</option><option value=\"h265\"'+(srtCfg.stream.codec==='h265'?' selected':'')+'>h265</option><option value=\"av1\"'+(srtCfg.stream.codec==='av1'?' selected':'')+'>av1</option></select></td>';",
+" h+='<td><select id=\"st_codec\"><option value=\"h264\"'+(srtCfg.stream.codec==='h264'?' selected':'')+'>h264</option><option value=\"h265\"'+(srtCfg.stream.codec==='h265'?' selected':'')+'>h265</option></select></td>';",
 " h+='<td><select id=\"st_bitrate\">';",
 " var brs=[4,6,12,24];",
 " for(var b=0;b<brs.length;b++){h+='<option value=\"'+brs[b]+'\"'+(Number(srtCfg.stream.bitrate)===brs[b]?' selected':'')+'>'+brs[b]+'</option>'}",
