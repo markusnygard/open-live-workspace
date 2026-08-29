@@ -770,7 +770,7 @@ const PAGE = [
 " var st=srt.stream||{};",
 " var container=st.container==='efp'?'EFP':'MPEG-TS';",
 " var audio=st.container==='efp'?'Opus 64k':'AAC 128k';",
-" h+='<span class=\"srt-ctr\">'+(st.codec||'h264').toUpperCase()+' &middot; '+container+' &middot; '+audio+' &middot; '+(st.bitrate||6)+' Mbps'+(st.video_mode&&st.video_mode!=='auto'?' &middot; '+st.video_mode:'')+' &mdash; '+(active>0?(running+'/'+active+' running'):'no streams configured')+'</span>';",
+" h+='<span class=\"srt-ctr\">'+container+' &middot; '+(st.codec||'h264').toUpperCase()+' &middot; '+(st.bitrate||6)+' Mbps'+(st.video_mode&&st.video_mode!=='auto'?' &middot; '+st.video_mode:'')+' &middot; '+audio+' &mdash; '+(active>0?(running+'/'+active+' running'):'no streams configured')+'</span>';",
 " h+='<button class=\"btn show\" onclick=\"openSrtSettings()\">&#9881; Settings</button>';",
 " if(running>0){",
 "  h+='<button class=\"btn start\" onclick=\"srtStart()\">Restart</button>';",
