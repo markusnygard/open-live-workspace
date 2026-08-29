@@ -89,8 +89,8 @@ const SRT_BITRATES = [4, 6, 12, 24];
 
 function defaultSrtConfig() {
   return {
-    stream: { codec: "h264", bitrate: 6, video_mode: "auto" },
-    ports: Array.from({ length: 12 }, (_, i) => ({ id: "SDI" + (i + 1), role: "off", address: "", container: "mpegts" })),
+    stream: { codec: "h264", bitrate: 6, video_mode: "auto", container: "mpegts" },
+    ports: Array.from({ length: 12 }, (_, i) => ({ id: "SDI" + (i + 1), role: "off", address: "" })),
   };
 }
 
@@ -98,18 +98,26 @@ function loadSrtConfig() {
   let cfg = null;
   try { cfg = JSON.parse(readFileSync(SRT_CONFIG_FILE, "utf8")); } catch {}
   if (!cfg || !Array.isArray(cfg.ports)) { cfg = defaultSrtConfig(); saveSrtConfig(cfg); return cfg; }
-  const legacyContainer = cfg.stream && cfg.stream.container;
+  let legacyContainer = cfg.stream && cfg.stream.container;
+  if (!["mpegts", "efp"].includes(legacyContainer)) {
+    const counts = {};
+    for (const p of cfg.ports || []) {
+      if (p.role === "off") continue;
+      const c = p.container;
+      if (["mpegts", "efp"].includes(c)) counts[c] = (counts[c] || 0) + 1;
+    }
+    legacyContainer = counts.efp > counts.mpegts ? "efp" : "mpegts";
+  }
   cfg.stream = {
     codec: SRT_CODECS.includes(cfg.stream && cfg.stream.codec) ? cfg.stream.codec : "h264",
     bitrate: SRT_BITRATES.includes(Number(cfg.stream && cfg.stream.bitrate)) ? Number(cfg.stream.bitrate) : 6,
     video_mode: (cfg.stream && cfg.stream.video_mode) || "auto",
+    container: legacyContainer,
   };
   cfg.ports = cfg.ports.map((p, i) => ({
     id: (p.id || "SDI" + (i + 1)).replace(/^SDI (\d+)$/, "SDI$1"),
     role: ["off", "sender", "receiver"].includes(p.role) ? p.role : "off",
     address: p.address || "",
-    container: ["mpegts", "efp"].includes(p.container) ? p.container
-      : (["mpegts", "efp"].includes(legacyContainer) ? legacyContainer : "mpegts"),
   }));
   return cfg;
 }
@@ -120,12 +128,12 @@ function saveSrtConfig(cfg) {
       codec: SRT_CODECS.includes(cfg.stream && cfg.stream.codec) ? cfg.stream.codec : "h264",
       bitrate: SRT_BITRATES.includes(Number(cfg.stream && cfg.stream.bitrate)) ? Number(cfg.stream.bitrate) : 6,
       video_mode: (cfg.stream && cfg.stream.video_mode) || "auto",
+      container: ["mpegts", "efp"].includes(cfg.stream && cfg.stream.container) ? cfg.stream.container : "mpegts",
     },
     ports: (cfg.ports || []).map((p, i) => ({
       id: (p.id || "SDI" + (i + 1)).replace(/^SDI (\d+)$/, "SDI$1"),
       role: ["off", "sender", "receiver"].includes(p.role) ? p.role : "off",
       address: p.address || "",
-      container: ["mpegts", "efp"].includes(p.container) ? p.container : "mpegts",
     })),
   };
   writeFileSync(SRT_CONFIG_FILE, JSON.stringify(normalized, null, 2));
@@ -174,7 +182,7 @@ function buildSrtFlow(port, index, stream) {
   const blocks = [];
   const links = [];
   if (port.role === "sender") {
-    const outBlock = (port.container === "efp") ? "builtin.efpsrt_output" : "builtin.mpegtssrt_output";
+    const outBlock = (stream.container === "efp") ? "builtin.efpsrt_output" : "builtin.mpegtssrt_output";
     blocks.push(
       { id: "dl", block_definition_id: "builtin.decklink_input", name: port.id + " In",
         properties: { device_number: index, stream_mode: "audio_video", mode: stream.video_mode || "auto" },
@@ -192,7 +200,7 @@ function buildSrtFlow(port, index, stream) {
       { from: "dl:audio_out", to: "srt:audio_in_0" },
     );
   } else if (port.role === "receiver") {
-    const inBlock = (port.container === "efp") ? "builtin.efpsrt_input" : "builtin.mpegtssrt_input";
+    const inBlock = (stream.container === "efp") ? "builtin.efpsrt_input" : "builtin.mpegtssrt_input";
     blocks.push(
       { id: "inp", block_definition_id: inBlock, name: port.id + " In",
         properties: { srt_uri: addr, decode: true, num_video_tracks: 1, latency: 120 }, position: { x: 0, y: 0 } },
@@ -242,7 +250,7 @@ async function srtStatus() {
       sdi: p.id,
       role: p.role,
       address: p.address || "",
-      container: p.container,
+      container: cfg.stream.container,
       running: !!(f && f.running),
       color: p.role === "off" ? "off" : (f && f.running) ? "green" : "red",
     };
@@ -781,27 +789,24 @@ const PAGE = [
 " var overlay=document.getElementById('overlay');",
 " var h='<div class=\"modal-header\"><h3>SRT GATEWAY SETTINGS</h3><button class=\"close-btn\" onclick=\"closeModal()\">x</button></div>';",
 " h+='<div style=\"padding:16px 20px\">';",
-" if(!srtCfg.stream)srtCfg.stream={codec:'h264',bitrate:6,video_mode:'auto'};",
+" if(!srtCfg.stream)srtCfg.stream={codec:'h264',bitrate:6,video_mode:'auto',container:'mpegts'};",
 " h+='<h3 style=\"margin:0 0 6px\">Stream Settings (all channels)</h3>';",
-" h+='<table class=\"ps-table\"><thead><tr><th>Codec</th><th>Bitrate (Mbps)</th><th>Video Mode</th></tr></thead><tbody><tr>';",
+" h+='<table class=\"ps-table\"><thead><tr><th>Codec</th><th>Bitrate (Mbps)</th><th>Video Mode</th><th>Container</th></tr></thead><tbody><tr>';",
 " h+='<td><select id=\"st_codec\"><option value=\"h264\"'+(srtCfg.stream.codec==='h264'?' selected':'')+'>h264</option><option value=\"h265\"'+(srtCfg.stream.codec==='h265'?' selected':'')+'>h265</option><option value=\"av1\"'+(srtCfg.stream.codec==='av1'?' selected':'')+'>av1</option></select></td>';",
 " h+='<td><select id=\"st_bitrate\">';",
 " var brs=[4,6,12,24];",
 " for(var b=0;b<brs.length;b++){h+='<option value=\"'+brs[b]+'\"'+(Number(srtCfg.stream.bitrate)===brs[b]?' selected':'')+'>'+brs[b]+'</option>'}",
 " h+='</select></td>';",
 " h+='<td><input id=\"st_mode\" value=\"'+(srtCfg.stream.video_mode||'auto')+'\" placeholder=\"auto or e.g. 1080p50\" style=\"width:110px;background:var(--card);color:var(--text);border:1px solid var(--border);padding:4px\"></td>';",
+" h+='<td><select id=\"st_container\"><option value=\"mpegts\"'+(srtCfg.stream.container!=='efp'?' selected':'')+'>mpegts</option><option value=\"efp\"'+(srtCfg.stream.container==='efp'?' selected':'')+'>efp</option></select></td>';",
 " h+='</tr></tbody></table>';",
 " h+='<p style=\"color:var(--muted);font-size:11px;margin:6px 0 0\">Audio: mpegts = AAC 128 kbps, EFP = Opus 64 kbps (fixed by the container).</p>';",
 " h+='<h3 style=\"margin:16px 0 6px\">SDI Ports</h3>';",
-" h+='<p style=\"color:var(--muted);font-size:11px;margin:4px 0 6px\">Device number is automatic: SDI1=0, SDI2=1, ... SDI12=11. Audio: mpegts = AAC, efp = Opus.</p>';",
-" h+='<table class=\"ps-table\"><thead><tr><th>SDI Port</th><th>Container</th><th>Role</th><th>SRT Address</th></tr></thead><tbody>';",
+" h+='<p style=\"color:var(--muted);font-size:11px;margin:4px 0 6px\">Device number is automatic: SDI1=0, SDI2=1, ... SDI12=11.</p>';",
+" h+='<table class=\"ps-table\"><thead><tr><th>SDI Port</th><th>Role</th><th>SRT Address</th></tr></thead><tbody>';",
 " for(var i=0;i<srtCfg.ports.length;i++){",
 "  var p=srtCfg.ports[i];",
 "  h+='<tr><td><input id=\"sdi_'+i+'\" value=\"'+p.id+'\" style=\"width:80px;background:var(--card);color:var(--text);border:1px solid var(--border);padding:4px\"></td>';",
-"  h+='<td><select id=\"ctn_'+i+'\" style=\"background:var(--card);color:var(--text);border:1px solid var(--border);padding:4px\">';",
-"  var cc=['mpegts','efp'];",
-"  for(var j=0;j<cc.length;j++){h+='<option value=\"'+cc[j]+'\"'+(p.container===cc[j]?' selected':'')+'>'+cc[j]+'</option>'}",
-"  h+='</select></td>';",
 "  h+='<td><select id=\"role_'+i+'\" style=\"background:var(--card);color:var(--text);border:1px solid var(--border);padding:4px\">';",
 "  var ro=['off','sender','receiver'];",
 "  for(var j=0;j<ro.length;j++){h+='<option value=\"'+ro[j]+'\"'+(p.role===ro[j]?' selected':'')+'>'+ro[j]+'</option>'}",
@@ -821,9 +826,9 @@ const PAGE = [
 " srtCfg.stream.codec=document.getElementById('st_codec').value;",
 " srtCfg.stream.bitrate=Number(document.getElementById('st_bitrate').value);",
 " srtCfg.stream.video_mode=document.getElementById('st_mode').value;",
+" srtCfg.stream.container=document.getElementById('st_container').value;",
 " for(var i=0;i<srtCfg.ports.length;i++){",
 "  srtCfg.ports[i].id=document.getElementById('sdi_'+i).value;",
-"  srtCfg.ports[i].container=document.getElementById('ctn_'+i).value;",
 "  srtCfg.ports[i].role=document.getElementById('role_'+i).value;",
 "  srtCfg.ports[i].address=document.getElementById('addr_'+i).value;",
 " }",
