@@ -84,8 +84,8 @@ const SRT_CONFIG_FILE = join(SRT_DIR, "srt-config.json");
 const SRT_FLOW_PREFIX = "srt-gw-";
 const SRT_STROM_URL = process.env.SRT_STROM_URL || "http://localhost:8081";
 const SRT_STROM_KEY = process.env.SRT_STROM_KEY || "dev-key-local";
-const SRT_CODECS = ["h264", "h265"];
-const SRT_BITRATES = [4, 6, 8, 12, 25];
+const SRT_CODECS = ["h264", "h265", "av1"];
+const SRT_BITRATES = [4, 6, 12, 24];
 
 function defaultSrtConfig() {
   return {
@@ -753,7 +753,7 @@ const PAGE = [
 " h+='<div class=\"srt-lights\">';",
 " for(var i=0;i<srt.channels.length;i++){",
 "  var ch=srt.channels[i];",
-"  var audio=ch.container==='efp'?'Opus':'AAC';",
+"  var audio=ch.container==='efp'?'Opus 64k':'AAC 128k';",
 "  var tip=ch.sdi+(ch.role!=='off'?' &middot; '+ch.role+' &middot; '+(ch.container||'mpegts')+' &middot; '+audio+' &middot; '+(ch.address||'no addr'):' &middot; off');",
 "  h+='<span class=\"srt-light '+ch.color+'\" title=\"'+tip+'\">'+ch.sdi+'</span>';",
 " }",
@@ -784,13 +784,14 @@ const PAGE = [
 " if(!srtCfg.stream)srtCfg.stream={codec:'h264',bitrate:6,video_mode:'auto'};",
 " h+='<h3 style=\"margin:0 0 6px\">Stream Settings (all channels)</h3>';",
 " h+='<table class=\"ps-table\"><thead><tr><th>Codec</th><th>Bitrate (Mbps)</th><th>Video Mode</th></tr></thead><tbody><tr>';",
-" h+='<td><select id=\"st_codec\"><option value=\"h264\"'+(srtCfg.stream.codec==='h264'?' selected':'')+'>h264</option><option value=\"h265\"'+(srtCfg.stream.codec==='h265'?' selected':'')+'>h265</option></select></td>';",
+" h+='<td><select id=\"st_codec\"><option value=\"h264\"'+(srtCfg.stream.codec==='h264'?' selected':'')+'>h264</option><option value=\"h265\"'+(srtCfg.stream.codec==='h265'?' selected':'')+'>h265</option><option value=\"av1\"'+(srtCfg.stream.codec==='av1'?' selected':'')+'>av1</option></select></td>';",
 " h+='<td><select id=\"st_bitrate\">';",
-" var brs=[4,6,8,12,25];",
+" var brs=[4,6,12,24];",
 " for(var b=0;b<brs.length;b++){h+='<option value=\"'+brs[b]+'\"'+(Number(srtCfg.stream.bitrate)===brs[b]?' selected':'')+'>'+brs[b]+'</option>'}",
 " h+='</select></td>';",
 " h+='<td><input id=\"st_mode\" value=\"'+(srtCfg.stream.video_mode||'auto')+'\" placeholder=\"auto or e.g. 1080p50\" style=\"width:110px;background:var(--card);color:var(--text);border:1px solid var(--border);padding:4px\"></td>';",
 " h+='</tr></tbody></table>';",
+" h+='<p style=\"color:var(--muted);font-size:11px;margin:6px 0 0\">Audio: mpegts = AAC 128 kbps, EFP = Opus 64 kbps (fixed by the container).</p>';",
 " h+='<h3 style=\"margin:16px 0 6px\">SDI Ports</h3>';",
 " h+='<p style=\"color:var(--muted);font-size:11px;margin:4px 0 6px\">Device number is automatic: SDI1=0, SDI2=1, ... SDI12=11. Audio: mpegts = AAC, efp = Opus.</p>';",
 " h+='<table class=\"ps-table\"><thead><tr><th>SDI Port</th><th>Container</th><th>Role</th><th>SRT Address</th></tr></thead><tbody>';",
