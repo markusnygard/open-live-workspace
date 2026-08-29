@@ -1474,3 +1474,52 @@ All dynamics properties are `live: true` EXCEPT `hpf_enabled`. The `live=False` 
 ### Known issues:
 - `gain_0.volume` (ch1_gain) property PATCH reports success in Strom logs but value doesn't persist in the element. The `pan_0.panorama` property works correctly via the same element-level PATCH mechanism. This may be a Strom bug with the `volume` element used as a gain stage — the `volume` GStreamer element might clamp or override values set via property PATCH.
 - `hpf_enabled` is non-live (block-level property). The toggle works but requires deactivate → reactivate to apply.
+
+## SRT Gateway — Architecture (2026-08-29, committed)
+
+The dashboard's SRT GATEWAY section drives a dedicated **Strom** instance that captures
+DeckLink SDI and sends **MPEG-TS or EFP** over SRT (as callers) to a Haivision relay.
+
+### Topology
+- **SRT Gateway Strom** — `open-live-srt-gateway` (docker compose in `open_live_srt/`),
+  port **8081**, `privileged` with DeckLink + GPU mounts. Runs independently of
+  local/hybrid mode. The DeckLink cards are exclusively owned by this container.
+- **Hybrid Strom + CouchDB** (`open_live_hybrid/`, port 8080/5984) — serves the
+  **OSC Open Live** backend via the VPS gateway (`93.115.23.149:8080/5984 → 100.64.0.1`).
+  VPS gateway watchdog (`scripts/openlive-gateway-check.sh`, systemd timer on VPS)
+  keeps the chain healthy.
+- **Relay** (Haivision SRT): publish ports `23001–23005` (`streamid=publish:srt_01…05`),
+  read ports `23101+` (`streamid=read:srt_01…`). SRT Gateway dials out (caller) to publish;
+  receivers (VLC, Open Live Strom, EFP receivers) dial out to read.
+
+### Flows (per configured SDI port)
+- **Sender, MPEG-TS**: `decklink_input → videoenc → mpegtssrt_output (caller)`
+- **Sender, EFP**:      `decklink_input → videoenc → efpsrt_output (caller)`
+- **Receiver, MPEG-TS**: `mpegtssrt_input (caller) → decklink_output`
+- **Receiver, EFP**:     `efpsrt_input (caller) → decklink_output`
+- Device number = **SDI index** (SDI1=0 … SDI12=11) — not user-configurable.
+- videoenc: `codec` h264/h265, `bitrate`, `tune=zerolatency`, `keyframe_interval=50`.
+- Audio is fixed by container: MPEG-TS = **AAC**, EFP = **Opus**. Both carry audio.
+
+### DeckLink driver / card notes
+- Cards are **Quad 2 (`a13f`) + Duo 2 (`a140`)** — io-only; the classic SDK/ffmpeg
+  `-f decklink` cannot enumerate them (ffmpeg shows 0 devices). Strom's GStreamer
+  `decklinkvideosrc` works via `device-number` **after** configuring the card profile +
+  connector mapping in `BlackmagicDesktopVideoSetup` (GUI, Desktop Video 15.3.1a4).
+- Device 0 has no input; signals are on devices 1–11 (SDI feeds via videohub).
+- The decklink input must be locked to the signal format (e.g. `mode=1080p50`); auto
+  fell back to 480i which broke the GPU encoder negotiation.
+
+### Dashboard SRT GATEWAY
+- Traffic-light chips (green=running, red=stopped/error, grey=off), per-port tooltip
+  shows role/container/audio/address.
+- Settings (cog): global Codec/Bitrate/Video Mode; per-port Container (mpegts/efp),
+  Role (off/sender/receiver), SRT Address. Device number is automatic.
+- Start = (re)create + start all flows; Stop = delete all; config save restarts streams.
+- SRT addresses live only in gitignored `open_live_srt/srt-config.json`.
+
+### Verified
+- EFP end-to-end with a local `efpsrt_input` receiver: video H.264→NV12 1920×1080,
+  audio Opus→S16LE 48k. (Cloud-Strom receiver check is the user's.)
+- MPEG-TS: ffmpeg-confirmed H.264 + AAC.
+- Hybrid Strom pulls the relay read URL (H.265+AAC) — the on-prem side of OSC Open Live.
